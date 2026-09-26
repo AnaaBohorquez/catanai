@@ -168,17 +168,22 @@ def test_un_error_de_red_cae_a_plantillas(monkeypatch, pantalla, consumo_aislado
 
 
 def test_solicitar_recomendacion_devuelve_opciones_nuevas(con_llm, pantalla):
+    # El modelo nombra el vértice como en pantalla; el id lo resuelve el backend.
     tomado = pantalla["opciones"][0]["vertices"][0]
-    con_llm([
-        respuesta(llamada("solicitar_recomendacion", {"ocupados": [tomado], "mio": None,
-                                                      "jugadores": None})),
+    simulado = con_llm([
+        respuesta(llamada("solicitar_recomendacion", {
+            "ocupar": [{"opcion": 1, "poblado": 1}], "mio": None, "jugadores": None,
+        })),
         respuesta(texto="Recalculé sin ese vértice: mira las opciones nuevas en el tablero."),
     ])
 
     r = chat.responder(_peticion(pantalla, "¿Y si me quitan el primer vértice de la opción 1?"))
 
+    # Una sola llamada a la herramienta basta: no hay ids que adivinar.
+    assert len(simulado.peticiones) == 2
     assert r.opciones_nuevas
     assert all(tomado not in o.vertices for o in r.opciones_nuevas)
+    assert r.estado_nuevo is not None and r.estado_nuevo.ocupados == [tomado]
     assert r.fuentes == ["modelo"]
 
 

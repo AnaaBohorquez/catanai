@@ -3,6 +3,7 @@ import {
   Component,
   ElementRef,
   computed,
+  effect,
   inject,
   input,
   linkedSignal,
@@ -13,7 +14,13 @@ import {
 } from '@angular/core';
 
 import { ColonoApi } from '../api/colono-api';
-import type { Opcion, RespuestaChat, RespuestaRecomendar, Tablero } from '../api/tipos';
+import type {
+  EstadoColocacion,
+  Opcion,
+  RespuestaChat,
+  RespuestaRecomendar,
+  Tablero,
+} from '../api/tipos';
 import {
   COLOR_MEDALLA,
   COLOR_RECURSO,
@@ -23,6 +30,12 @@ import {
   RECURSOS,
   type Recurso,
 } from '../estilo-catan';
+
+/** Aviso de que las opciones cambiaron por las marcas del tablero. */
+export interface Actualizacion {
+  n: number;
+  texto: string;
+}
 
 /** El mismo límite que valida el backend en `PeticionChat.pregunta`. */
 export const LIMITE_PREGUNTA = 500;
@@ -75,10 +88,12 @@ interface Ficha {
   desequilibrada: boolean;
   comparteCon: number[];
   produccion: { recurso: Recurso; icono: string; color: string; pips: number }[];
+  /** Segunda colocación: la descripción del poblado nuevo (el otro ya es tuyo). */
+  segundo: string | null;
 }
 
 /** Lo que muestran la franja y las tarjetas de un conjunto de opciones. */
-export function fichasDe(opciones: Opcion[]): Ficha[] {
+export function fichasDe(opciones: Opcion[], mio: string | null = null): Ficha[] {
   return opciones.map((opcion, indice) => ({
     indice,
     opcion,
@@ -97,6 +112,9 @@ export function fichasDe(opciones: Opcion[]): Ficha[] {
       color: COLOR_RECURSO[recurso],
       pips: opcion.variables[`pips_${recurso}`] ?? 0,
     })),
+    segundo: mio && opcion.vertices.includes(mio)
+      ? opcion.descripciones[opcion.vertices[0] === mio ? 1 : 0]
+      : null,
   }));
 }
 
@@ -104,10 +122,15 @@ const BIENVENIDA =
   'Hola, soy tu asistente de Catan. Carga el **tablero de demostración** y pulsa ' +
   '**Recomendar**: te propongo dónde poner tus dos primeros poblados y te explico por qué.';
 
+const PRESENTACION_SEGUNDA =
+  'Tu primer poblado ya está en el tablero. Estas son las mejores opciones para tu ' +
+  '**segundo poblado**: 🥇 es la de mayor puntaje; 🥈 y 🥉 son alternativas, de otra ' +
+  'estrategia cuando la hay. Los puntos son una estimación: fíjate sobre todo en el orden.';
+
 const PRESENTACION =
-  'Estas son tus tres mejores colocaciones. 🥇 es la de mayor puntaje; 🥈 y 🥉 son la ' +
-  'mejor opción de **otras estrategias**, para que tengas alternativas. Los puntos son ' +
-  'una estimación: fíjate sobre todo en el orden. Toca una para ver el detalle.';
+  'Estas son tus tres mejores colocaciones. 🥇 es la de mayor puntaje; 🥈 y 🥉 son ' +
+  'alternativas, de **otra estrategia** cuando la hay. Los puntos son una estimación: ' +
+  'fíjate sobre todo en el orden. Toca una para ver el detalle.';
 
 /**
  * Panel del asistente: pedir la recomendación, ver las opciones y conversar.
@@ -134,6 +157,12 @@ export class AsistenteComponent {
   readonly conversacion = input(0);
   readonly seleccionada = input(0);
   readonly jugadores = input(4);
+  /** Estado de la colocación: viaja con cada pregunta para que el chat lo vea. */
+  readonly ocupados = input<string[]>([]);
+  readonly mio = input<string | null>(null);
+  /** Los dos poblados propios ya están puestos. */
+  readonly completo = input(false);
+  readonly actualizacion = input<Actualizacion | null>(null);
   readonly habilitado = input(false);
   readonly cargando = input(false);
   readonly error = input<string | null>(null);
@@ -143,6 +172,8 @@ export class AsistenteComponent {
   readonly seleccionar = output<number>();
   /** El asistente pidió otra recomendación: el padre reemplaza las opciones. */
   readonly opcionesNuevas = output<Opcion[]>();
+  /** El asistente recalculó con una hipótesis: el padre marca el tablero. */
+  readonly estadoNuevo = output<EstadoColocacion>();
 
   protected readonly limite = LIMITE_PREGUNTA;
   protected readonly trocear = trocear;
@@ -161,9 +192,10 @@ export class AsistenteComponent {
   protected readonly entradas = linkedSignal<Entrada[]>(() => {
     this.conversacion();
     const respuesta = untracked(this.respuesta);
+    const presentacion = respuesta?.momento === 'segunda' ? PRESENTACION_SEGUNDA : PRESENTACION;
     return respuesta
       ? [
-          { tipo: 'texto', rol: 'asistente', texto: PRESENTACION },
+          { tipo: 'texto', rol: 'asistente', texto: presentacion },
           { tipo: 'opciones', opciones: respuesta.opciones },
         ]
       : [{ tipo: 'texto', rol: 'asistente', texto: BIENVENIDA }];
@@ -176,7 +208,23 @@ export class AsistenteComponent {
   });
 
   /** Las opciones vigentes: las de la franja y el tablero. */
-  protected readonly fichas = computed<Ficha[]>(() => fichasDe(this.respuesta()?.opciones ?? []));
+  protected readonly fichas = computed<Ficha[]>(() =>
+    fichasDe(this.respuesta()?.opciones ?? [], this.mio()),
+  );
+
+  constructor() {
+    // Las marcas cambiaron y App recalculó: se avisa en el chat y se agrega el
+    // bloque de tarjetas nuevo, sin borrar la conversación.
+    effect(() => {
+      const aviso = this.actualizacion();
+      if (!aviso) return;
+      untracked(() => {
+        this.agregar({ tipo: 'texto', rol: 'asistente', texto: aviso.texto });
+        const opciones = this.respuesta()?.opciones;
+        if (opciones?.length) this.agregar({ tipo: 'opciones', opciones });
+      });
+    });
+  }
 
   protected readonly sugerencias = computed(() => {
     const total = this.fichas().length;
@@ -217,11 +265,17 @@ export class AsistenteComponent {
         tablero: this.tablero(),
         opciones: this.respuesta()?.opciones ?? [],
         elegida: this.seleccionada(),
+        ocupados: this.ocupados(),
+        mio: this.mio(),
+        jugadores: this.jugadores(),
       })
       .subscribe({
         next: (r) => {
           if (!this.sigueVigente(conversacion)) return;
           this.agregar({ tipo: 'texto', rol: 'asistente', texto: r.texto, fuentes: r.fuentes });
+          // Primero las marcas y luego las opciones: así App sabe que ya coinciden
+          // y no vuelve a recalcular.
+          if (r.estado_nuevo) this.estadoNuevo.emit(r.estado_nuevo);
           if (r.opciones_nuevas?.length) {
             this.opcionesNuevas.emit(r.opciones_nuevas);
             this.agregar({ tipo: 'opciones', opciones: r.opciones_nuevas });

@@ -1,6 +1,7 @@
 import { Component, computed, input, output } from '@angular/core';
 
 import type { Opcion, Tablero } from '../api/tipos';
+import type { Marca, Marcas, ModoMarcado } from '../colocacion';
 import { COLOR_MEDALLA, COLOR_RECURSO, COLOR_TERRENO, type Recurso } from '../estilo-catan';
 import {
   Punto,
@@ -46,6 +47,19 @@ interface PobladoDibujo {
   color: string;
 }
 
+interface MarcaDibujo {
+  id: string;
+  centro: Punto;
+  tipo: Marca;
+}
+
+/** Un vértice que se puede tocar en modo de marcado. */
+interface PuntoDibujo {
+  id: string;
+  centro: Punto;
+  estado: 'libre' | 'bloqueado' | 'marcado';
+}
+
 /**
  * Dibuja un tablero en SVG. Solo muestra: no pide datos ni guarda estado.
  *
@@ -63,6 +77,15 @@ export class TableroComponent {
   readonly seleccionada = input(0);
   /** Avisa al padre qué opción tocó el usuario sobre el tablero. */
   readonly elegir = output<number>();
+
+  /** Vértices marcados por el usuario: su poblado y los de los rivales. */
+  readonly marcas = input<Marcas>({});
+  /** Con un modo activo, los vértices se pueden tocar para marcarlos. */
+  readonly modo = input<ModoMarcado>(null);
+  /** Marcados y sus vecinos: la regla de distancia los deja fuera. */
+  readonly bloqueados = input<ReadonlySet<string>>(new Set());
+  /** El usuario tocó un vértice en modo de marcado; el padre decide qué hacer. */
+  readonly tocarVertice = output<string>();
 
   protected readonly tam = TAM;
 
@@ -116,7 +139,8 @@ export class TableroComponent {
     const i = this.seleccionada();
     const opcion = this.opciones()[i];
     if (!opcion) return [];
-    return opcion.vertices.map((v) => ({
+    const marcas = this.marcas();
+    return opcion.vertices.filter((v) => !marcas[v]).map((v) => ({
       opcion: i,
       centro: centroVertice(v, TAM),
       color: COLOR_MEDALLA[i % COLOR_MEDALLA.length],
@@ -129,7 +153,7 @@ export class TableroComponent {
    */
   protected readonly otras = computed<PobladoDibujo[]>(() => {
     const i = this.seleccionada();
-    const ocupados = new Set(this.opciones()[i]?.vertices ?? []);
+    const ocupados = new Set([...(this.opciones()[i]?.vertices ?? []), ...Object.keys(this.marcas())]);
     return this.opciones().flatMap((o, j) =>
       j === i
         ? []
@@ -141,6 +165,22 @@ export class TableroComponent {
               color: COLOR_MEDALLA[j % COLOR_MEDALLA.length],
             })),
     );
+  });
+
+  protected readonly marcados = computed<MarcaDibujo[]>(() =>
+    Object.entries(this.marcas()).map(([id, tipo]) => ({ id, tipo, centro: centroVertice(id, TAM) })),
+  );
+
+  /** Los 54 vértices, solo cuando se está marcando. */
+  protected readonly puntos = computed<PuntoDibujo[]>(() => {
+    if (this.modo() === null) return [];
+    const marcas = this.marcas();
+    const bloqueados = this.bloqueados();
+    return this.tablero().vertices.map((v) => ({
+      id: v.id,
+      centro: centroVertice(v.id, TAM),
+      estado: marcas[v.id] ? 'marcado' : bloqueados.has(v.id) ? 'bloqueado' : 'libre',
+    }));
   });
 
   /** Encuadre del dibujo: los hexágonos más un anillo de mar para los puertos. */

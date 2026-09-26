@@ -170,6 +170,15 @@ encuentra `modelos/colono.joblib` sin variables extra.
 - **Las reglas del juego salen de `domain/reglas.md`**, y solo las entradas con
   `verificado: sí`. El archivo se lee una vez por proceso: tras editarlo, reiniciar
   el backend.
+- **Las marcas del tablero son la única verdad de la colocación en curso.** `marcas`
+  en `App` (vértice → propio o rival). De ellas salen `mio` y `ocupados` para
+  `/recomendar` y para el chat, y los bloqueados por la regla de distancia
+  (`sonVecinos()` en `tablero/geometria.ts`: dos vértices son vecinos si comparten
+  dos hexágonos, igual que en el dominio). Tras el primer "Recomendar", cambiar
+  marcas o jugadores recalcula solo.
+- **En el chat los vértices se nombran como en pantalla: "opción N, poblado K".** El
+  modelo de lenguaje nunca ve ni escribe ids; `solicitar_recomendacion` los resuelve
+  y devuelve `estado_nuevo` para que el tablero marque la hipótesis.
 - **Las pruebas nunca usan la clave real.** `tests/conftest.py` la vacía en cada
   prueba; las del LLM usan un cliente simulado. Sin esto, con la clave en `.env`,
   `pytest` llamaba a OpenAI y gastaba saldo.
@@ -220,7 +229,8 @@ encuentra `modelos/colono.joblib` sin variables extra.
 | Visión: puertos | pendiente (devuelve `puertos: []`); plantilla editable propuesta |
 | Chat: plantillas y LLM | LLM con herramientas, verificador, límites y registro listos y probados con un cliente simulado. Falta la clave para probarlo en vivo y correr `scripts/evaluar_chat.py` |
 | Reglas verificadas | borrador de 17 entradas en `domain/reglas.md`, **ninguna verificada**: hasta entonces el chat no cita reglas. `test_la_regla_de_costos_coincide_con_la_tabla_del_codigo` mantiene la de costos igual a `COSTOS` |
-| Herramientas del asistente | 10: 4 sobre las opciones y reglas, y 6 de experto (costos, mano, conseguir un recurso, plan de construcción, probabilidades, tablero), todas calculadas desde el dominio |
+| Marcar la colocación | modo + toque (Mi poblado, Rival, Borrar); regla de distancia en el cliente; recálculo automático; segunda colocación con `mio`. Los caminos no cuentan todavía |
+| Herramientas del asistente | 11 (con `ver_estado_del_tablero`); antes 10: 4 sobre las opciones y reglas, y 6 de experto (costos, mano, conseguir un recurso, plan de construcción, probabilidades, tablero), todas calculadas desde el dominio |
 | Plantilla "22 % más de puntos" | cifra retirada del chat hasta verificarla contra `parejas.csv` (`make dataset`) |
 | Frontend Angular | diseño "tablero + asistente": tablero fijo con la opción resaltada; panel con franja de opciones, tarjetas dentro del chat y campo fijo en móvil. Un solo estado de selección en `App` |
 | Despliegue | configuración lista (`docs/despliegue.md`); falta crear los servicios |

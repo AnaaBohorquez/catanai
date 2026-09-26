@@ -88,3 +88,26 @@ export function posicionPuerto(
     y: medio.y + (centroMar.y - medio.y) * 0.55,
   };
 }
+
+/**
+ * Dos vértices son vecinos (los une una arista) si comparten exactamente dos
+ * hexágonos. Es la misma definición que usa el dominio en el backend
+ * (`conceptos-catan.md` §2), y de ella sale la regla de distancia.
+ */
+export function sonVecinos(a: string, b: string): boolean {
+  if (a === b) return false;
+  const hexA = new Set(a.split('|'));
+  return b.split('|').filter((h) => hexA.has(h)).length === 2;
+}
+
+/**
+ * Vértices donde ya no se puede colocar: los marcados y sus vecinos. Entre dos
+ * poblados siempre tiene que haber al menos dos aristas.
+ */
+export function bloqueados(marcados: string[], todos: string[]): Set<string> {
+  const salida = new Set(marcados);
+  for (const v of todos) {
+    if (marcados.some((m) => sonVecinos(m, v))) salida.add(v);
+  }
+  return salida;
+}

@@ -31,7 +31,11 @@
   }
 
   <!-- 2. Franja fija con las opciones: cambiar de opción sin buscarla en el chat. -->
-  @if (fichas().length) {
+  @if (completo()) {
+    <p class="border-b border-madera/10 px-4 py-3 text-sm text-stone-800">
+      🏠🏠 Ya colocaste tus dos poblados. Puedes seguir preguntándome sobre tu colocación.
+    </p>
+  } @else if (fichas().length) {
     <!-- En móvil se pega arriba al desplazar; en escritorio ya está fuera de la zona que se desplaza. -->
     <div class="sticky top-0 z-10 grid grid-cols-3 gap-2 border-b border-madera/10 bg-crema p-3 lg:static" role="radiogroup" aria-label="Opciones recomendadas">
       @for (f of fichas(); track f.indice) {
@@ -89,7 +93,7 @@
           [class.pointer-events-none]="!vigente"
           [attr.aria-label]="vigente ? 'Opciones recomendadas' : 'Opciones anteriores'"
         >
-          @for (f of fichasDe(e.opciones); track f.indice) {
+          @for (f of fichasDe(e.opciones, mio()); track f.indice) {
             <li
               class="overflow-hidden rounded-xl border bg-white transition"
               [class.border-accion]="vigente && f.indice === seleccionada()"
@@ -110,6 +114,9 @@
                       <span aria-hidden="true">{{ f.icono }}</span> {{ f.opcion.explicacion.titulo }}
                     </span>
                     <span class="block text-sm text-stone-700">Opción {{ f.indice + 1 }} · ≈ {{ f.puntos }} pts</span>
+                    @if (f.segundo) {
+                      <span class="block text-sm text-stone-700">Tu segundo poblado: {{ f.segundo }}</span>
+                    }
                   </span>
                   <span class="text-stone-500" aria-hidden="true">{{ vigente && abierta() === f.indice ? '▴' : '▾' }}</span>
                 </span>

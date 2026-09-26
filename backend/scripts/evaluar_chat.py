@@ -39,10 +39,11 @@ PREGUNTAS: list[tuple[str, str | None]] = [
     ("Compara la opción 1 con la 2", "comparar_opciones"),
     ("¿Por qué la 2 estima menos que la 1?", "comparar_opciones"),
     ("¿Qué construyo primero con la opción 1?", "ver_resultados_actuales"),
-    ("Si otro jugador toma el primer vértice de la opción 1, ¿dónde pongo mis poblados?",
+    ("Si un rival toma la opción 1, poblado 1, ¿dónde pongo mis poblados?",
      "solicitar_recomendacion"),
-    ("Ya puse mi primer poblado en el primer vértice de la opción 2, ¿cuál es el segundo?",
+    ("Ya puse mi primer poblado en la opción 2, poblado 1: ¿cuál es el mejor segundo?",
      "solicitar_recomendacion"),
+    ("¿Qué hay marcado ahora en el tablero?", "ver_estado_del_tablero"),
     ("¿Cuánto cuesta una ciudad?", "costo_de_construccion"),
     ("¿Qué pasa si sale un 7?", "consultar_reglas"),
     ("¿Cómo funciona un puerto 3:1?", "consultar_reglas"),
@@ -69,6 +70,16 @@ def _pantalla(semilla: int) -> dict:
     return {"tablero": tablero, "opciones": opciones}
 
 
+def _estado(pregunta: str, pantalla: dict) -> dict:
+    """
+    La pregunta sobre lo marcado se hace con un rival puesto (el poblado 2 de la
+    opción 3), como si el usuario ya lo hubiera marcado en el tablero.
+    """
+    if "marcado" in pregunta:
+        return {"ocupados": [pantalla["opciones"][2].vertices[1]]}
+    return {}
+
+
 def _percentil(valores: list[float], p: float) -> float:
     ordenados = sorted(valores)
     return ordenados[min(len(ordenados) - 1, round(p * (len(ordenados) - 1)))]
@@ -87,7 +98,8 @@ def evaluar(esfuerzos: list[str], tableros: int) -> list[dict]:
         ajustes.openai_esfuerzo = esfuerzo
         for n, pantalla in enumerate(pantallas):
             for pregunta, esperada in PREGUNTAS:
-                peticion = PeticionChat(pregunta=pregunta, **pantalla)
+                estado = _estado(pregunta, pantalla)
+                peticion = PeticionChat(pregunta=pregunta, **pantalla, **estado)
                 respuesta = chat.responder(peticion, ip="eval")
                 evento = eventos[-1]
                 usadas = evento.get("herramientas", [])

@@ -189,6 +189,22 @@ Cada respuesta lleva etiquetas de dónde sale: **📊 Según el modelo**, **📖
 
 ---
 
+## 11. Marcar la colocación en curso
+
+En una partida real, cuando te toca colocar, otros jugadores ya pusieron sus poblados; y en la segunda vuelta tú ya tienes el primero. La app lo representa con **marcas** sobre el tablero:
+
+- **🏠 Mi poblado** y **⛔ Rival** marcan un vértice; **✖ Borrar** lo libera.
+- **Regla de distancia:** un vértice marcado y sus vecinos quedan bloqueados (aparecen con ×). Dos vértices son vecinos si comparten dos hexágonos: la misma definición del §2, así que el tablero y el backend nunca discrepan (se comprobó en los 54 vértices).
+- **Primera colocación:** sin poblado propio, la app busca la mejor **pareja** entre los vértices libres.
+- **Segunda colocación:** con un poblado propio marcado, ese vértice va como `mio` y la app busca el mejor **compañero** para él (`parejas_candidatas(obligatorio=...)`).
+- Con los dos poblados propios marcados ya no hay nada que recomendar; el chat sigue disponible.
+
+Tras el primer "Recomendar", cada cambio de marcas recalcula solo, y el asistente lo avisa en la conversación. El asistente recibe siempre ese estado, y si le preguntas "¿y si un rival toma la opción 1, poblado 1?", recalcula y **marca** ese rival en el tablero para que lo dibujado y lo recomendado coincidan.
+
+**Los caminos no cuentan todavía.** El modelo solo ve dónde están los poblados. Considerar caminos es parte de recomendar durante la partida completa, que es otro problema de modelado (ver el plan del paso 5).
+
+---
+
 ## Pendientes
 
 - [ ] Implementar `produccion_efectiva` con las tasas de cambio 4:1, 3:1 y 2:1

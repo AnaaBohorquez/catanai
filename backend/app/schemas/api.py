@@ -140,6 +140,18 @@ class PeticionChat(BaseModel):
         default=0, ge=0, le=5,
         description="Índice (desde 0) de la opción que el usuario eligió en pantalla",
     )
+    # Estado de la colocación tal como lo marcó el usuario en el tablero: el chat
+    # lo recibe siempre para no recomendar sobre un tablero que ya no es el real.
+    ocupados: list[str] = Field(default=[], description="Vértices marcados como de rivales")
+    mio: str | None = Field(default=None, description="Primer poblado del usuario, si lo marcó")
+    jugadores: int = Field(default=4, ge=3, le=4)
+
+
+class EstadoColocacion(BaseModel):
+    """Marcas del tablero: lo que el frontend debe mostrar como ocupado y como propio."""
+
+    ocupados: list[str] = []
+    mio: str | None = None
 
 
 class RespuestaChat(BaseModel):
@@ -152,6 +164,13 @@ class RespuestaChat(BaseModel):
         description=(
             "De dónde sale el contenido: resultados del modelo, reglas verificadas o "
             "consejo general no calculado. La interfaz lo muestra como etiquetas."
+        ),
+    )
+    estado_nuevo: EstadoColocacion | None = Field(
+        default=None,
+        description=(
+            "Si el asistente recalculó con una hipótesis ('¿y si un rival toma…?'), las "
+            "marcas que la interfaz debe aplicar para que tablero y opciones coincidan"
         ),
     )
     opciones_nuevas: list[Opcion] | None = Field(

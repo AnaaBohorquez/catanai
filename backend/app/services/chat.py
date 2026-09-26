@@ -23,6 +23,8 @@ from app.core.config import ajustes
 from app.schemas.api import PeticionChat, RespuestaChat
 from app.services import consumo
 from app.services.herramientas import DEFINICIONES, Herramientas
+from app.services.recomendador import describir_vertice
+from app.services.serializers import tablero_desde_api, vertice_desde_id
 
 INSTRUCCIONES = """\
 Eres el asistente de Colono IA, un experto en Catan (juego base) que ayuda con la
@@ -31,7 +33,9 @@ colocación inicial de poblados.
 Cómo trabajas:
 - No conoces el tablero ni las opciones: consúltalos con las herramientas.
   - Opciones en pantalla: ver_resultados_actuales, comparar_opciones.
-  - Otra colocación (vértice ocupado, primer poblado ya puesto): solicitar_recomendacion.
+  - Lo marcado en el tablero (tu poblado, rivales, libres): ver_estado_del_tablero.
+  - Otra colocación: solicitar_recomendacion. Si un rival toma un poblado de una
+    opción, va en `ocupar`; si el usuario ya puso su primer poblado, en `mio`.
   - Costos y puntos de cada pieza: costo_de_construccion.
   - Si el usuario dice qué cartas tiene: que_me_falta, siempre.
   - Cómo obtener un recurso con su opción: como_conseguir.
@@ -52,8 +56,12 @@ Cómo trabajas:
 - Si una regla no aparece en consultar_reglas, dilo; no la recites de memoria.
 - Todo consejo que no salga de las herramientas empieza con "Consejo general:" y no
   lleva cifras.
-- Nunca muestres ids de vértice (como "1,0|1,1|2,0"): son internos. Describe cada
-  poblado por sus recursos y números, como vienen en "poblados".
+- Nunca muestres ids de vértice (como "1,0|1,1|2,0"): son internos. Nombra un
+  vértice como en pantalla ("opción 1, poblado 2") o por sus recursos y números.
+- El estado del tablero (primera o segunda colocación, rivales, tu poblado) llega al
+  principio de cada pregunta. Recomienda siempre sobre ese estado.
+- Si recalculas con solicitar_recomendacion, avisa que el tablero ya muestra los
+  cambios y que el usuario puede deshacerlos con Borrar.
 - Los costos y los puntos de las piezas son reglas del juego: cítalos así, no como
   resultado del simulador. "Según el simulador" es solo para puntos estimados,
   rondas y producción.
@@ -121,6 +129,7 @@ def responder(peticion: PeticionChat, ip: str = "desconocida") -> RespuestaChat:
                 fuente="modelo_de_lenguaje",
                 fuentes=_fuentes(texto, herramientas),
                 opciones_nuevas=herramientas.opciones_nuevas,
+                estado_nuevo=herramientas.estado_nuevo,
             )
         motivo = uso["motivo"] or "sin_texto"
 
@@ -230,13 +239,27 @@ def _mensajes(peticion: PeticionChat) -> list[dict]:
         {"role": "user" if m.rol == "usuario" else "assistant", "content": m.texto}
         for m in peticion.historial[-8:]
     ]
-    if peticion.opciones:
-        seleccionada = _indice_elegido(peticion) + 1
-        contexto = f"[En pantalla, el usuario tiene seleccionada la opción {seleccionada}.]"
-    else:
-        contexto = "[El usuario todavía no ha pedido una recomendación.]"
-    mensajes.append({"role": "user", "content": f"{contexto}\n{peticion.pregunta}"})
+    pregunta = f"{estado_en_texto(peticion)}\n{peticion.pregunta}"
+    mensajes.append({"role": "user", "content": pregunta})
     return mensajes
+
+
+def estado_en_texto(peticion: PeticionChat) -> str:
+    """
+    El estado de la colocación en una línea, sin ids, para el principio de cada
+    pregunta: así el modelo no depende de acordarse de consultar el tablero.
+    """
+    partes = ["segunda colocación" if peticion.mio else "primera colocación"]
+    if peticion.mio and peticion.tablero is not None:
+        dominio = tablero_desde_api(peticion.tablero.model_dump())
+        propio = describir_vertice(vertice_desde_id(peticion.mio), dominio)
+        partes.append(f"tu primer poblado: {propio}")
+    partes.append(f"{len(peticion.ocupados)} poblados rivales marcados")
+    if peticion.opciones:
+        partes.append(f"seleccionada la opción {_indice_elegido(peticion) + 1}")
+    else:
+        partes.append("aún no hay recomendación en pantalla")
+    return "[Estado: " + "; ".join(partes) + ".]"
 
 
 def _fuentes(texto: str, herramientas: Herramientas) -> list[str]:
@@ -349,16 +372,15 @@ def _con_plantillas(peticion: PeticionChat) -> str:
 
     if any(p in pregunta for p in ("quitan", "quitaron", "ocupado", "tomaron",
                                    "segundo", "serpiente")):
-        # Marcar vértices ocupados todavía no está en la interfaz: no prometerlo.
         libres = [(i, o) for i, o in otras if not set(o.vertices) & set(elegida.vertices)]
         consejo = (
-            f" Mientras tanto, estas opciones no comparten vértice con la tuya: "
+            f" De las que tienes en pantalla, no comparten vértice con la tuya: "
             f"{_listar(libres)}." if libres else ""
         )
         return (
-            "Si te quitan uno de los dos vértices, lo correcto es recalcular con ese "
-            "vértice ocupado, porque el mejor compañero cambia. Marcar vértices "
-            "ocupados en el tablero llega en la siguiente versión." + consejo
+            "Si te quitan un vértice, márcalo como **Rival** en el tablero: recalculo "
+            "al momento, porque el mejor compañero cambia. Y si ya pusiste tu primer "
+            "poblado, márcalo como **Mi poblado** y te recomiendo el segundo." + consejo
         )
 
     if any(p in pregunta for p in ("pips", "puntitos", "más pips")):

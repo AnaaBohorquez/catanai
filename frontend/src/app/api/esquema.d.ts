@@ -176,6 +176,19 @@ export interface components {
             /** Foto */
             foto: string;
         };
+        /**
+         * EstadoColocacion
+         * @description Marcas del tablero: lo que el frontend debe mostrar como ocupado y como propio.
+         */
+        EstadoColocacion: {
+            /**
+             * Ocupados
+             * @default []
+             */
+            ocupados: string[];
+            /** Mio */
+            mio?: string | null;
+        };
         /** Explicacion */
         Explicacion: {
             /** Titulo */
@@ -300,6 +313,22 @@ export interface components {
              * @default 0
              */
             elegida: number;
+            /**
+             * Ocupados
+             * @description Vértices marcados como de rivales
+             * @default []
+             */
+            ocupados: string[];
+            /**
+             * Mio
+             * @description Primer poblado del usuario, si lo marcó
+             */
+            mio?: string | null;
+            /**
+             * Jugadores
+             * @default 4
+             */
+            jugadores: number;
         };
         /** PeticionRecomendar */
         PeticionRecomendar: {
@@ -352,6 +381,8 @@ export interface components {
              * @default []
              */
             fuentes: ("modelo" | "reglas" | "general")[];
+            /** @description Si el asistente recalculó con una hipótesis ('¿y si un rival toma…?'), las marcas que la interfaz debe aplicar para que tablero y opciones coincidan */
+            estado_nuevo?: components["schemas"]["EstadoColocacion"] | null;
             /**
              * Opciones Nuevas
              * @description Si el asistente pidió otra recomendación, las que calculó el modelo

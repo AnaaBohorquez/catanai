@@ -18,11 +18,13 @@ from typing import Literal
 
 from app.core.errors import ErrorDeDominio
 from app.domain.reglas import buscar_reglas, reglas_verificadas
+from app.domain.simulador import TOPOLOGIA
 from app.domain.tablero import COSTOS, PIPS, RECURSOS
 from app.domain.variables import _tasa_de_cambio, pips_por_recurso_del_tablero
-from app.schemas.api import Opcion, PeticionChat, PeticionRecomendar
+from app.schemas.api import EstadoColocacion, Opcion, PeticionChat, PeticionRecomendar
 from app.services.recomendacion import ModeloNoDisponible, calcular
-from app.services.serializers import tablero_desde_api
+from app.services.recomendador import describir_vertice
+from app.services.serializers import id_vertice, tablero_desde_api, vertice_desde_id
 
 #: Puntos de victoria que da cada pieza al construirla. La carta de desarrollo no
 #: da puntos por sí misma (salvo que sea de punto de victoria).
@@ -41,6 +43,18 @@ NOTAS_POR_PIEZA = {
 LIMITE_SALIDA = 4000
 
 Fuente = Literal["modelo", "reglas"]
+
+#: Cómo se nombra un vértice en el chat: tal como se ve en pantalla. El modelo de
+#: lenguaje nunca ve ni escribe ids internos, así que no puede inventarlos.
+_REFERENCIA = {
+    "type": "object",
+    "properties": {
+        "opcion": {"type": "integer", "description": "Número de la opción en pantalla"},
+        "poblado": {"type": "integer", "description": "1 o 2: cuál de sus dos poblados"},
+    },
+    "required": ["opcion", "poblado"],
+    "additionalProperties": False,
+}
 
 #: Definiciones en el formato de la Responses API. `strict` obliga al modelo a
 #: respetar el esquema; por eso todo campo aparece en `required` (los opcionales
@@ -96,30 +110,44 @@ DEFINICIONES = [
         "type": "function",
         "name": "solicitar_recomendacion",
         "description": (
-            "Pide al modelo una recomendación nueva para el mismo tablero, por ejemplo "
-            "si otro jugador ocupó un vértice o si el usuario ya colocó su primer "
-            "poblado. Los vértices se identifican con los ids de ver_resultados_actuales."
+            "Pide al modelo una recomendación nueva sobre el tablero actual (con las "
+            "marcas del usuario), sumando cambios: vértices que tomaría un rival o el "
+            "primer poblado del usuario. Los vértices se nombran como en pantalla: "
+            "opción N, poblado K (K es 1 o 2)."
         ),
         "strict": True,
         "parameters": {
             "type": "object",
             "properties": {
-                "ocupados": {
+                "ocupar": {
                     "type": "array",
-                    "items": {"type": "string"},
-                    "description": "Vértices que ya tomaron otros jugadores",
+                    "items": _REFERENCIA,
+                    "description": "Poblados de las opciones en pantalla que toma un rival",
                 },
                 "mio": {
-                    "type": ["string", "null"],
-                    "description": "Vértice del primer poblado del usuario, si ya lo colocó",
+                    "anyOf": [_REFERENCIA, {"type": "null"}],
+                    "description": "Dónde puso el usuario su primer poblado; null si no cambia",
                 },
                 "jugadores": {
                     "type": ["integer", "null"],
                     "description": "3 o 4; null para conservar el número actual",
                 },
             },
-            "required": ["ocupados", "mio", "jugadores"],
+            "required": ["ocupar", "mio", "jugadores"],
             "additionalProperties": False,
+        },
+    },
+    {
+        "type": "function",
+        "name": "ver_estado_del_tablero",
+        "description": (
+            "Lo que el usuario marcó en el tablero: su primer poblado, los poblados de "
+            "rivales, si es la primera o la segunda colocación y cuántos vértices libres "
+            "quedan por la regla de distancia."
+        ),
+        "strict": True,
+        "parameters": {
+            "type": "object", "properties": {}, "required": [], "additionalProperties": False
         },
     },
 ]
@@ -239,6 +267,8 @@ class Herramientas:
     #: Todas las salidas, para que el verificador compruebe las cifras.
     salidas: list[str] = field(default_factory=list)
     opciones_nuevas: list[Opcion] | None = None
+    #: Las marcas con las que se calcularon las opciones nuevas.
+    estado_nuevo: EstadoColocacion | None = None
 
     def ejecutar(self, nombre: str, argumentos: str) -> str:
         """Corre una herramienta y devuelve su salida en JSON (o un error legible)."""
@@ -297,20 +327,41 @@ class Herramientas:
         }
 
     def _solicitar_recomendacion(
-        self, ocupados: list[str], mio: str | None = None, jugadores: int | None = None
+        self, ocupar: list[dict], mio: dict | None = None, jugadores: int | None = None
     ) -> dict:
         if self.peticion.tablero is None:
             return {"error": "No hay tablero cargado."}
-        actuales = self.peticion.opciones
-        # El número de jugadores viaja dentro de las variables de cada opción.
-        por_defecto = int(actuales[0].variables.get("jugadores", 4)) if actuales else 4
+
+        # Siempre se parte de lo marcado en el tablero y se le suman los cambios.
+        ocupados = list(self.peticion.ocupados)
+        propio = self.peticion.mio
+        for referencia in ocupar:
+            vertice = self._resolver(referencia)
+            if isinstance(vertice, dict):
+                return vertice
+            if vertice == propio:
+                return {"error": "Ese es el poblado del usuario; no puede tomarlo un rival."}
+            if vertice not in ocupados:
+                if self._bloqueado(vertice, ocupados, propio):
+                    return {"error": "Un rival no puede colocar ahí: está junto a otro poblado "
+                                     "(regla de distancia)."}
+                ocupados.append(vertice)
+        if mio is not None:
+            vertice = self._resolver(mio)
+            if isinstance(vertice, dict):
+                return vertice
+            if vertice in ocupados or self._bloqueado(vertice, ocupados, None):
+                return {"error": "Ese vértice está ocupado o junto a un poblado rival "
+                                 "(regla de distancia)."}
+            propio = vertice
+
         try:
             respuesta = calcular(
                 PeticionRecomendar(
                     tablero=self.peticion.tablero,
-                    jugadores=jugadores or por_defecto,
+                    jugadores=jugadores or self.peticion.jugadores,
                     ocupados=ocupados,
-                    mio=mio,
+                    mio=propio,
                 )
             )
         except ModeloNoDisponible:
@@ -321,9 +372,32 @@ class Herramientas:
             return {"error": f"Petición inválida: {error}"}
         self.fuentes.add("modelo")
         self.opciones_nuevas = respuesta.opciones
+        self.estado_nuevo = EstadoColocacion(ocupados=ocupados, mio=propio)
         return {
-            "nota": "Estas opciones ya se muestran en pantalla y reemplazan a las anteriores.",
+            "nota": (
+                "Estas opciones ya se muestran en pantalla y reemplazan a las anteriores; "
+                "el tablero marca los cambios."
+            ),
+            "momento": "segunda colocación" if propio else "primera colocación",
             "opciones": [self._resumir(i, o) for i, o in enumerate(respuesta.opciones)],
+        }
+
+    def _ver_estado_del_tablero(self) -> dict:
+        if self.peticion.tablero is None:
+            return {"error": "No hay tablero cargado."}
+        self.fuentes.add("modelo")
+        ocupados, propio = self.peticion.ocupados, self.peticion.mio
+        libres = [
+            v for v in TOPOLOGIA.vertices
+            if not self._bloqueado(id_vertice(v), ocupados, propio)
+        ]
+        return {
+            "momento": "segunda colocación" if propio else "primera colocación",
+            "tu_poblado": self._describir(propio) if propio else "aún no colocas",
+            "rivales_marcados": len(ocupados),
+            "poblados_rivales": [self._describir(v) for v in ocupados],
+            "vertices_libres_legales": len(libres),
+            "jugadores": self.peticion.jugadores,
         }
 
     # --- Experto en Catan ---------------------------------------------------
@@ -528,6 +602,32 @@ class Herramientas:
         return cambios
 
 
+    def _resolver(self, referencia: dict) -> str | dict:
+        """
+        'Opción N, poblado K' → id interno del vértice. Si la referencia no existe,
+        devuelve un error que dice cuáles son válidas, para que el modelo corrija.
+        """
+        opciones = self.peticion.opciones
+        n, k = referencia.get("opcion"), referencia.get("poblado")
+        if not opciones:
+            return {"error": "No hay opciones en pantalla a las que referirse."}
+        if not (isinstance(n, int) and 1 <= n <= len(opciones)) or k not in (1, 2):
+            return {"error": f"Referencia inválida (opción {n}, poblado {k}). Hay "
+                             f"{len(opciones)} opciones, cada una con poblado 1 y 2."}
+        return opciones[n - 1].vertices[k - 1]
+
+    @staticmethod
+    def _bloqueado(vertice: str, ocupados: list[str], propio: str | None) -> bool:
+        """Regla de distancia: marcado, o vecino de algo marcado."""
+        marcados = [vertice_desde_id(v) for v in [*ocupados, *([propio] if propio else [])]]
+        v = vertice_desde_id(vertice)
+        return any(v == m or v in TOPOLOGIA.adyacentes[m] for m in marcados)
+
+    def _describir(self, vertice: str) -> str:
+        """Un vértice por sus recursos y números, como lo ve el usuario."""
+        dominio = tablero_desde_api(self.peticion.tablero.model_dump())
+        return describir_vertice(vertice_desde_id(vertice), dominio)
+
     def _seleccionada(self) -> int:
         return min(self.peticion.elegida, max(len(self.peticion.opciones) - 1, 0))
 
@@ -543,7 +643,6 @@ class Herramientas:
             "pips_totales": v.get("pips_totales"),
             "tiene_puerto": bool(v.get("num_puertos", 0)),
             "poblados": opcion.descripciones,
-            "vertices": opcion.vertices,
             "resumen": opcion.explicacion.resumen,
             "por_que": opcion.explicacion.porque,
             "haz": opcion.explicacion.haz,

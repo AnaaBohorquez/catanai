@@ -69,12 +69,31 @@
     </g>
   }
 
+  <!-- Marcas del usuario: su poblado (crema, «Tú») y los de rivales (gris oscuro). -->
+  @for (m of marcados(); track m.id) {
+    <g [attr.transform]="'translate(' + m.centro.x + ' ' + m.centro.y + ')'"
+       [attr.aria-label]="m.tipo === 'propio' ? 'Tu poblado' : 'Poblado de un rival'">
+      <path
+        [attr.transform]="'scale(' + tam * 0.3 + ')'"
+        d="M -1 -0.05 L 0 -1 L 1 -0.05 L 0.78 -0.05 L 0.78 0.85 L -0.78 0.85 L -0.78 -0.05 Z"
+        [attr.fill]="m.tipo === 'propio' ? '#fbf5e6' : '#3f3f46'"
+        [attr.stroke]="m.tipo === 'propio' ? '#3b2412' : '#f5f5f4'"
+        stroke-width="3" stroke-linejoin="round" vector-effect="non-scaling-stroke"
+      />
+      @if (m.tipo === 'propio') {
+        <text [attr.y]="tam * 0.12" text-anchor="middle" dominant-baseline="central"
+              [attr.font-size]="tam * 0.2" font-weight="700" fill="#3b2412">Tú</text>
+      }
+    </g>
+  }
+
   <!-- Las otras opciones: medallas pequeñas; tocarlas las selecciona. -->
   @for (p of otras(); track $index) {
     <g
       class="cursor-pointer"
       role="button"
       tabindex="0"
+      [attr.pointer-events]="modo() ? 'none' : null"
       [attr.aria-label]="'Seleccionar la opción ' + (p.opcion + 1)"
       (click)="elegir.emit(p.opcion)"
       (keydown.enter)="elegir.emit(p.opcion)"
@@ -106,6 +125,28 @@
         text-anchor="middle" dominant-baseline="central"
         [attr.font-size]="tam * 0.24" font-weight="700" fill="#ffffff"
       >{{ p.opcion + 1 }}</text>
+    </g>
+  }
+
+  <!-- Modo de marcado: cada vértice es tocable. El círculo invisible agranda el área
+       de toque (unos 44 px en un celular); el punto o la ✖ indican su estado. -->
+  @for (p of puntos(); track p.id) {
+    <g
+      class="cursor-pointer"
+      role="button"
+      tabindex="0"
+      [attr.aria-label]="'Vértice ' + (p.estado === 'bloqueado' ? 'bloqueado por la regla de distancia' : p.estado)"
+      (click)="tocarVertice.emit(p.id)"
+      (keydown.enter)="tocarVertice.emit(p.id)"
+    >
+      <circle [attr.cx]="p.centro.x" [attr.cy]="p.centro.y" [attr.r]="tam * 0.3" fill="transparent" />
+      @if (p.estado === 'libre') {
+        <circle [attr.cx]="p.centro.x" [attr.cy]="p.centro.y" [attr.r]="tam * 0.11"
+                fill="#fbf5e6" stroke="#3b2412" [attr.stroke-width]="tam * 0.03" />
+      } @else if (p.estado === 'bloqueado') {
+        <text [attr.x]="p.centro.x" [attr.y]="p.centro.y" text-anchor="middle" dominant-baseline="central"
+              [attr.font-size]="tam * 0.34" font-weight="700" fill="#3b2412" opacity="0.5">×</text>
+      }
     </g>
   }
 </svg>
