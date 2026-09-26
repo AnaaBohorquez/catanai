@@ -87,6 +87,7 @@
     <app-asistente
       [tablero]="tablero()"
       [respuesta]="respuesta()"
+      [conversacion]="conversacion()"
       [seleccionada]="seleccionada()"
       [jugadores]="jugadores()"
       [habilitado]="!!tablero() && conectado()"
@@ -95,6 +96,7 @@
       (recomendar)="pedirRecomendacion()"
       (cambiarJugadores)="cambiarJugadores($event)"
       (seleccionar)="seleccionada.set($event)"
+      (opcionesNuevas)="aplicarOpcionesNuevas($event)"
     />
   </main>
 </div>

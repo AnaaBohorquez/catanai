@@ -150,10 +150,10 @@ export interface paths {
          * Pregunta sobre la recomendación
          * @description Responde dudas sobre las opciones que el usuario está viendo.
          *
-         *     El asistente **no inventa recomendaciones nuevas**: contesta a partir del
-         *     tablero y de las opciones que ya calculó el modelo. Si no hay clave de LLM
-         *     configurada, responde con las explicaciones que genera el recomendador, así
-         *     que la función nunca queda inservible.
+         *     El asistente **no inventa recomendaciones ni cifras**: consulta el tablero, las
+         *     opciones y las reglas verificadas con herramientas del backend, y si hace falta
+         *     otra recomendación la pide al modelo. Sin clave de LLM, o si algo falla, responde
+         *     con plantillas construidas sobre las opciones ya calculadas.
          */
         post: operations["preguntar_api_v1_chat_post"];
         delete?: never;
@@ -346,6 +346,17 @@ export interface components {
              * @enum {string}
              */
             fuente: "modelo_de_lenguaje" | "plantillas";
+            /**
+             * Fuentes
+             * @description De dónde sale el contenido: resultados del modelo, reglas verificadas o consejo general no calculado. La interfaz lo muestra como etiquetas.
+             * @default []
+             */
+            fuentes: ("modelo" | "reglas" | "general")[];
+            /**
+             * Opciones Nuevas
+             * @description Si el asistente pidió otra recomendación, las que calculó el modelo
+             */
+            opciones_nuevas?: components["schemas"]["Opcion"][] | null;
         };
         /** RespuestaRecomendar */
         RespuestaRecomendar: {

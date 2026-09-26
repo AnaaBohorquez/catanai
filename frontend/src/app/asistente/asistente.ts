@@ -8,11 +8,12 @@ import {
   linkedSignal,
   output,
   signal,
+  untracked,
   viewChild,
 } from '@angular/core';
 
 import { ColonoApi } from '../api/colono-api';
-import type { Opcion, RespuestaRecomendar, Tablero } from '../api/tipos';
+import type { Opcion, RespuestaChat, RespuestaRecomendar, Tablero } from '../api/tipos';
 import {
   COLOR_MEDALLA,
   COLOR_RECURSO,
@@ -26,13 +27,29 @@ import {
 /** El mismo límite que valida el backend en `PeticionChat.pregunta`. */
 export const LIMITE_PREGUNTA = 500;
 
+type Fuente = RespuestaChat['fuentes'][number];
+
+/** Cómo se muestra cada fuente bajo una respuesta, en lenguaje de jugador. */
+export const ETIQUETA_FUENTE: Record<Fuente, string> = {
+  modelo: '📊 Según el modelo',
+  reglas: '📖 Regla del juego',
+  general: '💡 Consejo general',
+};
+
 /**
- * Un elemento de la conversación: un mensaje de texto, o el bloque con las
- * tarjetas de las opciones (que se pinta a partir de la respuesta del modelo).
+ * Un elemento de la conversación: un mensaje de texto, o un bloque de tarjetas con
+ * las opciones que había en ese momento. Cada bloque guarda su propia copia, porque
+ * el asistente puede pedir opciones nuevas y las anteriores deben seguir legibles.
  */
 type Entrada =
-  | { tipo: 'texto'; rol: 'usuario' | 'asistente'; texto: string; error?: boolean }
-  | { tipo: 'opciones' };
+  | {
+      tipo: 'texto';
+      rol: 'usuario' | 'asistente';
+      texto: string;
+      error?: boolean;
+      fuentes?: Fuente[];
+    }
+  | { tipo: 'opciones'; opciones: Opcion[] };
 
 /** Un trozo de texto, en negrita o no: el backend marca los nombres con **…**. */
 export interface Trozo {
@@ -58,6 +75,29 @@ interface Ficha {
   desequilibrada: boolean;
   comparteCon: number[];
   produccion: { recurso: Recurso; icono: string; color: string; pips: number }[];
+}
+
+/** Lo que muestran la franja y las tarjetas de un conjunto de opciones. */
+export function fichasDe(opciones: Opcion[]): Ficha[] {
+  return opciones.map((opcion, indice) => ({
+    indice,
+    opcion,
+    medalla: MEDALLA[indice] ?? `${indice + 1}.`,
+    color: COLOR_MEDALLA[indice % COLOR_MEDALLA.length],
+    icono: ICONO_ESTRATEGIA[opcion.estrategia] ?? '🎲',
+    puntos: opcion.prediccion.toFixed(1),
+    desequilibrada: opcion.estrategia === 'desequilibrada',
+    comparteCon: opciones
+      .map((otra, j) => ({ otra, j }))
+      .filter(({ otra, j }) => j !== indice && otra.vertices.some((v) => opcion.vertices.includes(v)))
+      .map(({ j }) => j + 1),
+    produccion: RECURSOS.map((recurso) => ({
+      recurso,
+      icono: ICONO_RECURSO[recurso],
+      color: COLOR_RECURSO[recurso],
+      pips: opcion.variables[`pips_${recurso}`] ?? 0,
+    })),
+  }));
 }
 
 const BIENVENIDA =
@@ -86,6 +126,12 @@ export class AsistenteComponent {
 
   readonly tablero = input<Tablero | null>(null);
   readonly respuesta = input<RespuestaRecomendar | null>(null);
+  /**
+   * Número de conversación: `App` lo sube al cargar un tablero, recomendar o
+   * cambiar de jugadores. Solo entonces se reinicia el chat; si el asistente pide
+   * opciones nuevas, la conversación sigue.
+   */
+  readonly conversacion = input(0);
   readonly seleccionada = input(0);
   readonly jugadores = input(4);
   readonly habilitado = input(false);
@@ -95,53 +141,42 @@ export class AsistenteComponent {
   readonly recomendar = output<void>();
   readonly cambiarJugadores = output<number>();
   readonly seleccionar = output<number>();
+  /** El asistente pidió otra recomendación: el padre reemplaza las opciones. */
+  readonly opcionesNuevas = output<Opcion[]>();
 
   protected readonly limite = LIMITE_PREGUNTA;
   protected readonly trocear = trocear;
+  protected readonly fichasDe = fichasDe;
+  protected readonly etiquetaFuente = ETIQUETA_FUENTE;
   protected readonly borrador = signal('');
   protected readonly pensando = signal(false);
 
   private readonly final = viewChild<ElementRef<HTMLElement>>('final');
 
   /**
-   * La conversación. `linkedSignal` la reinicia sola cuando llega otra
-   * recomendación o cambia el tablero: lo que se habló antes ya no aplica.
+   * La conversación. `linkedSignal` la reinicia sola cuando cambia el número de
+   * conversación. La respuesta se lee con `untracked` para que recibir opciones
+   * nuevas desde el chat no borre lo que se habló.
    */
   protected readonly entradas = linkedSignal<Entrada[]>(() => {
-    this.tablero();
-    return this.respuesta()
-      ? [{ tipo: 'texto', rol: 'asistente', texto: PRESENTACION }, { tipo: 'opciones' }]
+    this.conversacion();
+    const respuesta = untracked(this.respuesta);
+    return respuesta
+      ? [
+          { tipo: 'texto', rol: 'asistente', texto: PRESENTACION },
+          { tipo: 'opciones', opciones: respuesta.opciones },
+        ]
       : [{ tipo: 'texto', rol: 'asistente', texto: BIENVENIDA }];
   });
 
-  /** Qué tarjeta tiene el detalle abierto; se cierra al llegar otra recomendación. */
+  /** Qué tarjeta tiene el detalle abierto; se cierra al cambiar las opciones. */
   protected readonly abierta = linkedSignal<number | null>(() => {
     this.respuesta();
     return null;
   });
 
-  protected readonly fichas = computed<Ficha[]>(() => {
-    const opciones = this.respuesta()?.opciones ?? [];
-    return opciones.map((opcion, indice) => ({
-      indice,
-      opcion,
-      medalla: MEDALLA[indice] ?? `${indice + 1}.`,
-      color: COLOR_MEDALLA[indice % COLOR_MEDALLA.length],
-      icono: ICONO_ESTRATEGIA[opcion.estrategia] ?? '🎲',
-      puntos: opcion.prediccion.toFixed(1),
-      desequilibrada: opcion.estrategia === 'desequilibrada',
-      comparteCon: opciones
-        .map((otra, j) => ({ otra, j }))
-        .filter(({ otra, j }) => j !== indice && otra.vertices.some((v) => opcion.vertices.includes(v)))
-        .map(({ j }) => j + 1),
-      produccion: RECURSOS.map((recurso) => ({
-        recurso,
-        icono: ICONO_RECURSO[recurso],
-        color: COLOR_RECURSO[recurso],
-        pips: opcion.variables[`pips_${recurso}`] ?? 0,
-      })),
-    }));
-  });
+  /** Las opciones vigentes: las de la franja y el tablero. */
+  protected readonly fichas = computed<Ficha[]>(() => fichasDe(this.respuesta()?.opciones ?? []));
 
   protected readonly sugerencias = computed(() => {
     const total = this.fichas().length;
@@ -151,6 +186,11 @@ export class AsistenteComponent {
     if (total > 1) lista.push(`Compárala con la opción ${n === 1 ? 2 : 1}`);
     return lista;
   });
+
+  /** Un bloque de tarjetas que ya no es el vigente se muestra atenuado y sin tocar. */
+  protected esVigente(opciones: Opcion[]): boolean {
+    return opciones === this.respuesta()?.opciones;
+  }
 
   /** Tocar una tarjeta la selecciona y abre o cierra su detalle. */
   protected tocarTarjeta(indice: number): void {
@@ -162,7 +202,7 @@ export class AsistenteComponent {
     const pregunta = texto.trim().slice(0, LIMITE_PREGUNTA);
     if (!pregunta || this.pensando()) return;
 
-    const respuesta = this.respuesta();
+    const conversacion = this.conversacion();
     const historial = this.entradas().flatMap((e) =>
       e.tipo === 'texto' && !e.error ? [{ rol: e.rol, texto: e.texto }] : [],
     );
@@ -175,29 +215,37 @@ export class AsistenteComponent {
         pregunta,
         historial,
         tablero: this.tablero(),
-        opciones: respuesta?.opciones ?? [],
+        opciones: this.respuesta()?.opciones ?? [],
         elegida: this.seleccionada(),
       })
       .subscribe({
-        next: (r) => this.responder(respuesta, { tipo: 'texto', rol: 'asistente', texto: r.texto }),
-        error: (e: HttpErrorResponse) =>
-          this.responder(respuesta, {
+        next: (r) => {
+          if (!this.sigueVigente(conversacion)) return;
+          this.agregar({ tipo: 'texto', rol: 'asistente', texto: r.texto, fuentes: r.fuentes });
+          if (r.opciones_nuevas?.length) {
+            this.opcionesNuevas.emit(r.opciones_nuevas);
+            this.agregar({ tipo: 'opciones', opciones: r.opciones_nuevas });
+          }
+        },
+        error: (e: HttpErrorResponse) => {
+          if (!this.sigueVigente(conversacion)) return;
+          this.agregar({
             tipo: 'texto',
             rol: 'asistente',
             error: true,
             texto:
               e.status === 429
-                ? 'Has hecho muchas preguntas seguidas. Espera un momento y vuelve a intentar.'
+                ? 'Has hecho muchas preguntas seguidas. Espera unos minutos y vuelve a intentar.'
                 : 'No pude responder ahora. Revisa la conexión e inténtalo de nuevo.',
-          }),
+          });
+        },
       });
   }
 
-  /** Si mientras tanto llegó otra recomendación, la respuesta ya no aplica. */
-  private responder(respuesta: RespuestaRecomendar | null, entrada: Entrada): void {
+  /** Si mientras tanto se cargó otro tablero o se recomendó de nuevo, se descarta. */
+  private sigueVigente(conversacion: number): boolean {
     this.pensando.set(false);
-    if (respuesta !== this.respuesta()) return;
-    this.agregar(entrada);
+    return conversacion === this.conversacion();
   }
 
   private agregar(entrada: Entrada): void {

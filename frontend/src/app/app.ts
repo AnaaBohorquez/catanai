@@ -3,7 +3,7 @@ import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { timeout } from 'rxjs';
 
 import { ColonoApi } from './api/colono-api';
-import type { RespuestaRecomendar, Tablero } from './api/tipos';
+import type { Opcion, RespuestaRecomendar, Tablero } from './api/tipos';
 import { AsistenteComponent } from './asistente/asistente';
 import { TableroComponent } from './tablero/tablero';
 
@@ -49,6 +49,12 @@ export class App implements OnInit {
   protected readonly tableroVisible = signal(true);
   protected readonly recomendando = signal(false);
   protected readonly errorRecomendar = signal<string | null>(null);
+  /**
+   * Sube cada vez que empieza una conversación nueva: otro tablero, otra
+   * recomendación u otro número de jugadores. Las opciones que pide el propio
+   * asistente no la cambian, para no borrar lo que se estaba hablando.
+   */
+  protected readonly conversacion = signal(0);
 
   ngOnInit(): void {
     this.comprobarServidor();
@@ -80,7 +86,8 @@ export class App implements OnInit {
         this.tablero.set(tablero);
         // Las opciones anteriores eran de otro tablero: ya no valen.
         this.respuesta.set(null);
-            this.errorRecomendar.set(null);
+        this.errorRecomendar.set(null);
+        this.conversacion.update((n) => n + 1);
         this.cargando.set(false);
       },
       error: (e: HttpErrorResponse) => {
@@ -95,6 +102,13 @@ export class App implements OnInit {
     this.jugadores.set(n);
     // Las cifras dependen del número de jugadores: las anteriores ya no aplican.
     this.respuesta.set(null);
+    this.conversacion.update((n) => n + 1);
+  }
+
+  /** El asistente pidió otra recomendación: el tablero y la franja pasan a ella. */
+  protected aplicarOpcionesNuevas(opciones: Opcion[]): void {
+    this.respuesta.update((r) => (r ? { ...r, opciones } : r));
+    this.seleccionada.set(0);
   }
 
   protected pedirRecomendacion(): void {
@@ -108,7 +122,8 @@ export class App implements OnInit {
         next: (respuesta) => {
           this.respuesta.set(respuesta);
           this.seleccionada.set(0);
-                this.recomendando.set(false);
+          this.conversacion.update((n) => n + 1);
+          this.recomendando.set(false);
         },
         error: (e: HttpErrorResponse) => {
           this.errorRecomendar.set(mensajeDeError(e));

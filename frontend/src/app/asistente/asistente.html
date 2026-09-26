@@ -70,20 +70,37 @@
                 : 'self-start rounded-bl-sm border border-madera/10 bg-white text-stone-800'
           "
         ><!-- En una línea: un salto aquí se vería como espacio antes de la coma. -->@for (t of trocear(e.texto); track $index) {@if (t.negrita) {<strong>{{ t.texto }}</strong>} @else {{{ t.texto }}}}</p>
+        @if (e.fuentes?.length) {
+          <p class="-mt-1.5 flex flex-wrap gap-1.5 self-start" aria-label="De dónde sale esta respuesta">
+            @for (fuente of e.fuentes; track fuente) {
+              <span class="rounded-full border border-madera/15 bg-crema px-2 py-0.5 text-sm text-stone-700">{{ etiquetaFuente[fuente] }}</span>
+            }
+          </p>
+        }
       } @else {
-        <ol class="flex flex-col gap-2" aria-label="Opciones recomendadas">
-          @for (f of fichas(); track f.indice) {
+        <!-- Un bloque anterior (el asistente pidió opciones nuevas) queda como registro, sin tocar. -->
+        @let vigente = esVigente(e.opciones);
+        @if (!vigente) {
+          <p class="-mb-1 text-sm text-stone-600">Opciones anteriores:</p>
+        }
+        <ol
+          class="flex flex-col gap-2"
+          [class.opacity-60]="!vigente"
+          [class.pointer-events-none]="!vigente"
+          [attr.aria-label]="vigente ? 'Opciones recomendadas' : 'Opciones anteriores'"
+        >
+          @for (f of fichasDe(e.opciones); track f.indice) {
             <li
               class="overflow-hidden rounded-xl border bg-white transition"
-              [class.border-accion]="f.indice === seleccionada()"
-              [class.ring-1]="f.indice === seleccionada()"
-              [class.ring-accion]="f.indice === seleccionada()"
-              [class.border-borde]="f.indice !== seleccionada()"
+              [class.border-accion]="vigente && f.indice === seleccionada()"
+              [class.ring-1]="vigente && f.indice === seleccionada()"
+              [class.ring-accion]="vigente && f.indice === seleccionada()"
+              [class.border-borde]="!vigente || f.indice !== seleccionada()"
             >
               <button
                 type="button"
                 class="flex w-full flex-col gap-2 p-3 text-left"
-                [attr.aria-expanded]="abierta() === f.indice"
+                [attr.aria-expanded]="vigente && abierta() === f.indice"
                 (click)="tocarTarjeta(f.indice)"
               >
                 <span class="flex w-full items-center gap-2">
@@ -94,7 +111,7 @@
                     </span>
                     <span class="block text-sm text-stone-700">Opción {{ f.indice + 1 }} · ≈ {{ f.puntos }} pts</span>
                   </span>
-                  <span class="text-stone-500" aria-hidden="true">{{ abierta() === f.indice ? '▴' : '▾' }}</span>
+                  <span class="text-stone-500" aria-hidden="true">{{ vigente && abierta() === f.indice ? '▴' : '▾' }}</span>
                 </span>
                 <span class="flex flex-wrap gap-x-3 gap-y-1 text-sm text-stone-800" aria-label="Producción por recurso">
                   @for (p of f.produccion; track p.recurso) {
@@ -106,7 +123,7 @@
                 </span>
               </button>
 
-              @if (abierta() === f.indice) {
+              @if (vigente && abierta() === f.indice) {
                 <div class="border-t border-madera/10 bg-crema/60 px-3 pb-3 pt-2 text-sm leading-relaxed text-stone-800">
                   <p>{{ f.opcion.explicacion.resumen }}</p>
                   @if (f.desequilibrada) {

@@ -1,0 +1,32 @@
+name: colono-ia
+
+services:
+  backend:
+    build:
+      context: ./backend
+    container_name: colono-backend
+    environment:
+      CORS_ORIGINS: http://localhost:4200,http://localhost:8080
+      RUTA_MODELO: /srv/modelos/colono.joblib
+    volumes:
+      - ./modelos:/srv/modelos:ro
+    ports:
+      - "8000:8000"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/api/v1/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: colono-frontend
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "8080:80"
+    restart: unless-stopped
