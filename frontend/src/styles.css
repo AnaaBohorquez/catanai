@@ -1,0 +1,88 @@
+@import 'tailwindcss';
+
+/*
+ * Estilo "mesa de Catan", versión limpia: madera de fondo, paneles crema y un solo
+ * color de acción (terracota). Todo es CSS, sin imágenes que descargar.
+ *
+ * Los colores de @theme se vuelven utilidades de Tailwind: `bg-madera`,
+ * `text-crema`, `border-accion`, `ring-accion`, `border-borde`…
+ */
+@theme {
+  --font-catan: 'Alegreya', 'Georgia', 'Times New Roman', serif;
+  --color-madera: #3b2412;
+  --color-crema: #fbf5e6;
+  --color-accion: #b5532b;
+  --color-accion-oscuro: #96431f;
+  --color-borde: rgb(59 36 18 / 0.15);
+}
+
+body {
+  background-color: #6f4727;
+}
+
+.titulo-catan {
+  font-family: var(--font-catan);
+}
+
+/* Madera con vetas muy suaves: textura sin ruido visual. */
+.mesa {
+  background-color: #74492a;
+  background-image:
+    repeating-linear-gradient(93deg, rgb(255 255 255 / 0.025) 0 1px, transparent 1px 22px),
+    linear-gradient(180deg, #7d502d 0%, #6a4225 100%);
+}
+
+.cabecera {
+  background-color: var(--color-madera);
+  border-bottom: 2px solid #b8893c;
+}
+
+/* El tablero descansa en un marco fino, como el marco de mar del juego. */
+.marco-tablero {
+  border-radius: 1.25rem;
+  padding: 0.3rem;
+  background: #c9a55c;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.25);
+}
+
+/* Panel del asistente: crema liso, borde fino y sombra ligera. */
+.panel {
+  background-color: var(--color-crema);
+  border: 1px solid rgb(201 165 92 / 0.6);
+  border-radius: 1rem;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.2);
+}
+
+.barra-entrada {
+  background-color: var(--color-crema);
+  /* En móvil, respeta la barra de gestos del teléfono. */
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom));
+}
+
+@media (width >= 64rem) {
+  .barra-entrada {
+    padding-bottom: 0.75rem;
+  }
+}
+
+/* El único botón de acción: terracota. */
+.boton-accion {
+  border-radius: 0.5rem;
+  background-color: var(--color-accion);
+  color: #fff;
+  font-weight: 600;
+  transition: background-color 150ms;
+}
+
+.boton-accion:hover:not(:disabled) {
+  background-color: var(--color-accion-oscuro);
+}
+
+.boton-accion:disabled {
+  opacity: 0.5;
+}
+
+.boton-accion:focus-visible {
+  outline: 2px solid var(--color-accion);
+  outline-offset: 2px;
+}

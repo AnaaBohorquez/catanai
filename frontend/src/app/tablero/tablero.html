@@ -1,0 +1,111 @@
+<svg
+  [attr.viewBox]="viewBox()"
+  class="mx-auto block h-auto max-h-[calc(100vh-10rem)] w-full"
+  role="img"
+  aria-label="Tablero de Catan"
+>
+  <rect
+    [attr.x]="marco().x" [attr.y]="marco().y"
+    [attr.width]="marco().ancho" [attr.height]="marco().alto"
+    [attr.rx]="tam * 0.4" fill="#0369a1"
+  />
+  <!-- Puertos: dos muelles hacia sus vértices y una marca en el mar. -->
+  @for (p of puertos(); track $index) {
+    <g>
+      <title>{{ p.nombre }}</title>
+      @for (m of p.muelles; track $index) {
+        <line
+          [attr.x1]="p.marca.x" [attr.y1]="p.marca.y"
+          [attr.x2]="m.x" [attr.y2]="m.y"
+          stroke="#f5e6c4" [attr.stroke-width]="tam * 0.08" stroke-linecap="round"
+        />
+      }
+      <circle
+        [attr.cx]="p.marca.x" [attr.cy]="p.marca.y" [attr.r]="tam * 0.36"
+        [attr.fill]="p.color" stroke="#1f2937" [attr.stroke-width]="tam * 0.03"
+      />
+      <text
+        [attr.x]="p.marca.x" [attr.y]="p.recurso ? p.marca.y - tam * 0.08 : p.marca.y"
+        text-anchor="middle" dominant-baseline="central"
+        [attr.font-size]="tam * 0.22" font-weight="700" [attr.fill]="p.tinta"
+      >{{ p.texto }}</text>
+      @if (p.recurso) {
+        <text
+          [attr.x]="p.marca.x" [attr.y]="p.marca.y + tam * 0.14"
+          text-anchor="middle" dominant-baseline="central"
+          [attr.font-size]="tam * 0.13" font-weight="600" [attr.fill]="p.tinta"
+        >{{ p.recurso }}</text>
+      }
+    </g>
+  }
+
+  <!-- Hexágonos: terreno, ficha con el número y los pips debajo. -->
+  @for (h of hexagonos(); track h.id) {
+    <g>
+      <title>{{ h.nombre }}</title>
+      <polygon [attr.points]="h.esquinas" [attr.fill]="h.color" stroke="#f5e6c4" [attr.stroke-width]="tam * 0.04" />
+      @if (h.numero) {
+        <circle
+          [attr.cx]="h.centro.x" [attr.cy]="h.centro.y" [attr.r]="tam * 0.42"
+          fill="#fdf6e3" stroke="#57534e" [attr.stroke-width]="tam * 0.02"
+        />
+        <text
+          [attr.x]="h.centro.x" [attr.y]="h.centro.y - tam * 0.05"
+          text-anchor="middle" dominant-baseline="central"
+          [attr.font-size]="tam * 0.36" font-weight="700"
+          [attr.fill]="h.rojo ? '#b91c1c' : '#1c1917'"
+        >{{ h.numero }}</text>
+        @for (pip of h.pips; track $index) {
+          <circle
+            [attr.cx]="pip.x" [attr.cy]="pip.y" [attr.r]="tam * 0.035"
+            [attr.fill]="h.rojo ? '#b91c1c' : '#1c1917'"
+          />
+        }
+      }
+      <!-- Velo crema: atenúa sin dejar ver el mar azul a través, como haría la opacidad. -->
+      @if (h.atenuado) {
+        <polygon [attr.points]="h.esquinas" fill="#fbf5e6" opacity="0.62" />
+      }
+    </g>
+  }
+
+  <!-- Las otras opciones: medallas pequeñas; tocarlas las selecciona. -->
+  @for (p of otras(); track $index) {
+    <g
+      class="cursor-pointer"
+      role="button"
+      tabindex="0"
+      [attr.aria-label]="'Seleccionar la opción ' + (p.opcion + 1)"
+      (click)="elegir.emit(p.opcion)"
+      (keydown.enter)="elegir.emit(p.opcion)"
+    >
+      <circle
+        [attr.cx]="p.centro.x" [attr.cy]="p.centro.y" [attr.r]="tam * 0.22"
+        [attr.fill]="p.color" stroke="#3b2412" [attr.stroke-width]="tam * 0.04"
+      />
+      <text
+        [attr.x]="p.centro.x" [attr.y]="p.centro.y"
+        text-anchor="middle" dominant-baseline="central"
+        [attr.font-size]="tam * 0.24" font-weight="700" fill="#ffffff"
+      >{{ p.opcion + 1 }}</text>
+    </g>
+  }
+
+  <!-- La opción seleccionada: dos casitas del color de su medalla. -->
+  @for (p of poblados(); track $index) {
+    <g [attr.transform]="'translate(' + p.centro.x + ' ' + p.centro.y + ')'" [attr.aria-label]="'Poblado de la opción ' + (p.opcion + 1)">
+      <circle [attr.r]="tam * 0.42" fill="#ffffff" opacity="0.85" />
+      <path
+        [attr.transform]="'scale(' + tam * 0.3 + ')'"
+        d="M -1 -0.05 L 0 -1 L 1 -0.05 L 0.78 -0.05 L 0.78 0.85 L -0.78 0.85 L -0.78 -0.05 Z"
+        [attr.fill]="p.color" stroke="#3b2412" stroke-width="3" stroke-linejoin="round"
+        vector-effect="non-scaling-stroke"
+      />
+      <text
+        [attr.y]="tam * 0.1"
+        text-anchor="middle" dominant-baseline="central"
+        [attr.font-size]="tam * 0.24" font-weight="700" fill="#ffffff"
+      >{{ p.opcion + 1 }}</text>
+    </g>
+  }
+</svg>

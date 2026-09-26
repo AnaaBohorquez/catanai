@@ -1,0 +1,100 @@
+<div class="mesa flex min-h-screen flex-col text-stone-800">
+  <header class="cabecera flex items-center justify-between gap-3 px-4 py-3 text-crema sm:px-6">
+    <div class="flex items-center gap-2.5">
+      <span class="text-2xl" aria-hidden="true">🏘️</span>
+      <div>
+        <h1 class="titulo-catan text-xl font-bold leading-tight tracking-wide sm:text-2xl">Colono IA</h1>
+        <p class="text-sm text-amber-100/90">Tu asistente para la colocación inicial en Catan</p>
+      </div>
+    </div>
+    <div class="flex items-center gap-2 text-sm" role="status" aria-live="polite">
+      @switch (servidor()) {
+        @case ('conectando') {
+          <span class="size-2.5 rounded-full bg-stone-300"></span><span class="hidden sm:inline">Conectando…</span>
+        }
+        @case ('despertando') {
+          <span class="size-2.5 animate-pulse rounded-full bg-amber-300"></span> Despertando el servidor (hasta 1 min)
+        }
+        @case ('listo') {
+          <span class="size-2.5 rounded-full bg-lime-300"></span><span class="hidden sm:inline">Listo</span>
+        }
+        @case ('degradado') {
+          <span class="size-2.5 rounded-full bg-orange-400"></span> Recomendaciones no disponibles
+        }
+        @case ('sin-conexion') {
+          <span class="size-2.5 rounded-full bg-red-400"></span> Sin conexión
+          <button
+            type="button"
+            class="rounded border border-amber-100/60 px-2 py-0.5 hover:bg-white/10"
+            (click)="comprobarServidor()"
+          >
+            Reintentar
+          </button>
+        }
+      }
+    </div>
+  </header>
+
+  <!-- En móvil se deja espacio abajo para el campo de texto fijo del asistente. -->
+  <main class="mx-auto grid w-full max-w-7xl flex-1 gap-4 p-3 pb-44 sm:p-5 sm:pb-44 lg:grid-cols-[minmax(0,1fr)_28rem] lg:gap-6 lg:pb-5">
+    <!-- Columna del tablero: fija en escritorio mientras se conversa. -->
+    <section class="flex flex-col gap-3 lg:sticky lg:top-5 lg:self-start">
+      <div class="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          class="rounded-lg border border-amber-100/40 bg-crema px-4 py-2 font-semibold text-madera hover:bg-white disabled:opacity-50"
+          [disabled]="cargando() || !conectado()"
+          (click)="pedirTableroDemo()"
+        >
+          {{ cargando() ? 'Cargando…' : 'Tablero de demostración' }}
+        </button>
+        <span class="text-sm text-amber-50/90">Próximamente: foto del tablero vacío</span>
+        @if (tablero()) {
+          <button
+            type="button"
+            class="ml-auto rounded-lg border border-amber-100/40 px-3 py-2 text-sm text-amber-50 hover:bg-white/10 lg:hidden"
+            [attr.aria-expanded]="tableroVisible()"
+            (click)="tableroVisible.set(!tableroVisible())"
+          >
+            {{ tableroVisible() ? 'Ocultar tablero ▴' : 'Mostrar tablero ▾' }}
+          </button>
+        }
+      </div>
+
+      @if (error()) {
+        <p role="alert" class="rounded-lg border border-red-300 bg-red-50 px-4 py-3 text-red-800">
+          {{ error() }}
+        </p>
+      }
+
+      @if (tablero(); as t) {
+        <!-- Plegado solo en móvil: en escritorio (lg) el tablero siempre se ve. -->
+        <div [class]="tableroVisible() ? 'marco-tablero' : 'marco-tablero hidden lg:block'">
+          <app-tablero
+            [tablero]="t"
+            [opciones]="respuesta()?.opciones ?? []"
+            [seleccionada]="seleccionada()"
+            (elegir)="seleccionada.set($event)"
+          />
+        </div>
+      } @else {
+        <div class="grid aspect-[4/3] place-items-center rounded-2xl border-2 border-dashed border-amber-100/40 p-6 text-center text-amber-50">
+          Pulsa «Tablero de demostración» para ver un tablero del juego base.
+        </div>
+      }
+    </section>
+
+    <app-asistente
+      [tablero]="tablero()"
+      [respuesta]="respuesta()"
+      [seleccionada]="seleccionada()"
+      [jugadores]="jugadores()"
+      [habilitado]="!!tablero() && conectado()"
+      [cargando]="recomendando()"
+      [error]="errorRecomendar()"
+      (recomendar)="pedirRecomendacion()"
+      (cambiarJugadores)="cambiarJugadores($event)"
+      (seleccionar)="seleccionada.set($event)"
+    />
+  </main>
+</div>

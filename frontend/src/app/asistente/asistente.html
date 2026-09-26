@@ -1,0 +1,173 @@
+<section class="panel flex flex-col lg:h-[calc(100vh-7rem)]" aria-label="Asistente de Catan">
+  <!-- 1. Controles: jugadores y Recomendar. -->
+  <div class="flex flex-wrap items-center gap-3 border-b border-madera/10 p-4">
+    <div class="flex overflow-hidden rounded-lg border border-madera/20 text-sm" role="group" aria-label="Número de jugadores">
+      @for (n of [3, 4]; track n) {
+        <button
+          type="button"
+          class="px-3 py-2 font-medium"
+          [class.bg-madera]="jugadores() === n"
+          [class.text-crema]="jugadores() === n"
+          [class.text-stone-800]="jugadores() !== n"
+          [attr.aria-pressed]="jugadores() === n"
+          (click)="cambiarJugadores.emit(n)"
+        >
+          {{ n }} jugadores
+        </button>
+      }
+    </div>
+    <button
+      type="button"
+      class="boton-accion ml-auto px-5 py-2"
+      [disabled]="!habilitado() || cargando()"
+      (click)="recomendar.emit()"
+    >
+      {{ cargando() ? 'Calculando…' : 'Recomendar' }}
+    </button>
+  </div>
+
+  @if (error()) {
+    <p role="alert" class="mx-4 mt-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">{{ error() }}</p>
+  }
+
+  <!-- 2. Franja fija con las opciones: cambiar de opción sin buscarla en el chat. -->
+  @if (fichas().length) {
+    <!-- En móvil se pega arriba al desplazar; en escritorio ya está fuera de la zona que se desplaza. -->
+    <div class="sticky top-0 z-10 grid grid-cols-3 gap-2 border-b border-madera/10 bg-crema p-3 lg:static" role="radiogroup" aria-label="Opciones recomendadas">
+      @for (f of fichas(); track f.indice) {
+        <button
+          type="button"
+          role="radio"
+          class="flex min-w-0 flex-col items-start rounded-lg border px-2 py-1.5 text-left transition"
+          [class.border-accion]="f.indice === seleccionada()"
+          [class.bg-white]="f.indice === seleccionada()"
+          [class.shadow-sm]="f.indice === seleccionada()"
+          [class.border-borde]="f.indice !== seleccionada()"
+          [attr.aria-checked]="f.indice === seleccionada()"
+          (click)="seleccionar.emit(f.indice)"
+        >
+          <span class="flex w-full items-center gap-1">
+            <span class="text-xl leading-none" aria-hidden="true">{{ f.medalla }}</span>
+            <span class="truncate text-sm font-semibold text-stone-900">{{ f.opcion.explicacion.titulo }}</span>
+          </span>
+          <span class="text-sm text-stone-700">≈ {{ f.puntos }} pts</span>
+        </button>
+      }
+    </div>
+  }
+
+  <!-- 3. Conversación: la única zona que se desplaza en escritorio. -->
+  <div class="flex flex-1 flex-col gap-3 p-4 lg:overflow-y-auto" aria-live="polite">
+    @for (e of entradas(); track $index) {
+      @if (e.tipo === 'texto') {
+        <p
+          class="max-w-[90%] rounded-2xl px-3.5 py-2.5 text-[0.95rem] leading-relaxed"
+          [class]="
+            e.rol === 'usuario'
+              ? 'self-end rounded-br-sm bg-madera text-crema'
+              : e.error
+                ? 'self-start rounded-bl-sm border border-red-300 bg-red-50 text-red-800'
+                : 'self-start rounded-bl-sm border border-madera/10 bg-white text-stone-800'
+          "
+        ><!-- En una línea: un salto aquí se vería como espacio antes de la coma. -->@for (t of trocear(e.texto); track $index) {@if (t.negrita) {<strong>{{ t.texto }}</strong>} @else {{{ t.texto }}}}</p>
+      } @else {
+        <ol class="flex flex-col gap-2" aria-label="Opciones recomendadas">
+          @for (f of fichas(); track f.indice) {
+            <li
+              class="overflow-hidden rounded-xl border bg-white transition"
+              [class.border-accion]="f.indice === seleccionada()"
+              [class.ring-1]="f.indice === seleccionada()"
+              [class.ring-accion]="f.indice === seleccionada()"
+              [class.border-borde]="f.indice !== seleccionada()"
+            >
+              <button
+                type="button"
+                class="flex w-full flex-col gap-2 p-3 text-left"
+                [attr.aria-expanded]="abierta() === f.indice"
+                (click)="tocarTarjeta(f.indice)"
+              >
+                <span class="flex w-full items-center gap-2">
+                  <span class="text-2xl leading-none" aria-hidden="true">{{ f.medalla }}</span>
+                  <span class="min-w-0 flex-1">
+                    <span class="block text-base font-semibold text-stone-900">
+                      <span aria-hidden="true">{{ f.icono }}</span> {{ f.opcion.explicacion.titulo }}
+                    </span>
+                    <span class="block text-sm text-stone-700">Opción {{ f.indice + 1 }} · ≈ {{ f.puntos }} pts</span>
+                  </span>
+                  <span class="text-stone-500" aria-hidden="true">{{ abierta() === f.indice ? '▴' : '▾' }}</span>
+                </span>
+                <span class="flex flex-wrap gap-x-3 gap-y-1 text-sm text-stone-800" aria-label="Producción por recurso">
+                  @for (p of f.produccion; track p.recurso) {
+                    <span class="inline-flex items-center gap-1" [class.opacity-40]="p.pips === 0">
+                      <span class="size-2.5 rounded-full" [style.background-color]="p.color" aria-hidden="true"></span>
+                      {{ p.recurso }} <strong class="tabular-nums">{{ p.pips }}</strong>
+                    </span>
+                  }
+                </span>
+              </button>
+
+              @if (abierta() === f.indice) {
+                <div class="border-t border-madera/10 bg-crema/60 px-3 pb-3 pt-2 text-sm leading-relaxed text-stone-800">
+                  <p>{{ f.opcion.explicacion.resumen }}</p>
+                  @if (f.desequilibrada) {
+                    <p class="mt-2 rounded bg-amber-100 px-2 py-1 text-amber-900">
+                      ⚠️ Produce mucho, pero de pocos recursos: vas a depender del comercio.
+                    </p>
+                  }
+                  <p class="mt-2 font-semibold">Por qué</p>
+                  <ul class="list-disc pl-5">
+                    @for (razon of f.opcion.explicacion.porque; track $index) {
+                      <li>{{ razon }}</li>
+                    }
+                  </ul>
+                  <p class="mt-2"><span class="font-semibold">Evita:</span> {{ f.opcion.explicacion.evita }}</p>
+                  <p class="mt-2 text-stone-700">Poblados: {{ f.opcion.descripciones[0] }} │ {{ f.opcion.descripciones[1] }}</p>
+                  @if (f.comparteCon.length) {
+                    <p class="text-stone-700">Comparte un poblado con la opción {{ f.comparteCon.join(' y ') }}.</p>
+                  }
+                </div>
+              }
+            </li>
+          }
+        </ol>
+      }
+    }
+    @if (pensando()) {
+      <p class="self-start rounded-2xl rounded-bl-sm bg-white/70 px-3.5 py-2.5 text-sm italic text-stone-700">
+        El asistente está pensando…
+      </p>
+    }
+    <!-- Ancla para llevar a la vista el último mensaje. En móvil deja sitio al campo fijo. -->
+    <div #final class="scroll-mb-44 lg:scroll-mb-0"></div>
+  </div>
+
+  <!-- 4 y 5. Sugerencias y campo de texto: fijos abajo en móvil. -->
+  <div class="barra-entrada fixed inset-x-0 bottom-0 z-20 flex flex-col gap-2 border-t border-madera/15 p-3 lg:static lg:z-auto lg:rounded-b-2xl">
+    @if (sugerencias().length) {
+      <div class="-mx-1 flex gap-2 overflow-x-auto px-1 pb-0.5 lg:flex-wrap lg:overflow-visible">
+        @for (s of sugerencias(); track s) {
+          <button
+            type="button"
+            class="shrink-0 rounded-full border border-accion/40 bg-white px-3 py-1.5 text-sm text-accion hover:bg-accion/5 disabled:opacity-50"
+            [disabled]="pensando()"
+            (click)="enviar(s)"
+          >
+            {{ s }}
+          </button>
+        }
+      </div>
+    }
+    <form class="flex gap-2" (submit)="$event.preventDefault(); enviar(borrador())">
+      <input
+        type="text"
+        class="min-w-0 flex-1 rounded-lg border border-madera/25 bg-white px-3 py-2.5 text-base text-stone-900 placeholder:text-stone-500 focus:outline-2 focus:outline-accion"
+        placeholder="Pregúntale al asistente…"
+        aria-label="Tu pregunta"
+        [attr.maxlength]="limite"
+        [value]="borrador()"
+        (input)="borrador.set($any($event.target).value)"
+      />
+      <button type="submit" class="boton-accion px-4" [disabled]="pensando() || !borrador().trim()">Enviar</button>
+    </form>
+  </div>
+</section>
