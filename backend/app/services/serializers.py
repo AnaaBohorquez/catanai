@@ -8,9 +8,14 @@ un identificador de texto estable y esta capa convierte en ambos sentidos.
 
 from __future__ import annotations
 
+from collections import Counter
+
+from app.domain.puertos import verificar_puertos
 from app.domain.tablero import (
+    FICHAS,
     PIPS,
     RECURSO_DE_TERRENO,
+    TERRENOS,
     puerto_del_vertice,
     todas_las_aristas,
     todos_los_vertices,
@@ -134,6 +139,21 @@ def avisos_del_tablero(tablero: dict) -> list[str]:
     total = sum(tablero["pips"].values())
     if tablero["numeros"] and total != 58:
         avisos.append(f"Los pips suman {total}; en el juego base suman 58.")
-    if len(tablero["puertos"]) != 9:
-        avisos.append(f"Hay {len(tablero['puertos'])} puertos; el juego base lleva 9.")
+
+    # Los totales no bastan: 5 campos y 2 colinas siguen siendo 19 hexágonos, y
+    # dos 12 sin ningún 2 suman los mismos pips. Hay que comparar el reparto.
+    terrenos = Counter(tablero["terrenos"].values())
+    distintos = [
+        f"{t} {terrenos.get(t, 0)} de {n}" for t, n in TERRENOS.items()
+        if t != "desierto" and terrenos.get(t, 0) != n
+    ]
+    if distintos:
+        avisos.append(
+            "El reparto de terrenos no es el del juego base: " + ", ".join(distintos) + "."
+        )
+    fichas = Counter(tablero["numeros"].values())
+    if len(tablero["numeros"]) == 18 and fichas != Counter(FICHAS):
+        avisos.append("Las fichas no son las del juego base: algún número sobra o falta.")
+
+    avisos.extend(verificar_puertos(tablero["puertos"], tablero["hexagonos"]))
     return avisos

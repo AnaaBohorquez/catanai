@@ -412,6 +412,12 @@ export interface components {
             /** Detecciones */
             detecciones: components["schemas"]["HexagonoDetectado"][];
             /**
+             * Puertos Confirmados
+             * @description La foto no lee puertos: llegan como plantilla que el usuario confirma
+             * @default false
+             */
+            puertos_confirmados: boolean;
+            /**
              * Avisos
              * @default []
              */

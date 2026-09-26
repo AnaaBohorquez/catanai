@@ -10,8 +10,14 @@
     [attr.rx]="tam * 0.4" fill="#0369a1"
   />
   <!-- Puertos: dos muelles hacia sus vértices y una marca en el mar. -->
-  @for (p of puertos(); track $index) {
-    <g>
+  @for (p of puertos(); track $index; let i = $index) {
+    <g
+      [class.cursor-pointer]="revision()"
+      [attr.role]="revision() ? 'button' : null"
+      [attr.tabindex]="revision() ? 0 : null"
+      (click)="revision() && tocarPuerto.emit(i)"
+      (keydown.enter)="revision() && tocarPuerto.emit(i)"
+    >
       <title>{{ p.nombre }}</title>
       @for (m of p.muelles; track $index) {
         <line
@@ -22,7 +28,9 @@
       }
       <circle
         [attr.cx]="p.marca.x" [attr.cy]="p.marca.y" [attr.r]="tam * 0.36"
-        [attr.fill]="p.color" stroke="#1f2937" [attr.stroke-width]="tam * 0.03"
+        [attr.fill]="p.color"
+        [attr.stroke]="revision() && puertoSeleccionado() === i ? '#b5532b' : '#1f2937'"
+        [attr.stroke-width]="tam * (revision() && puertoSeleccionado() === i ? 0.1 : 0.03)"
       />
       <text
         [attr.x]="p.marca.x" [attr.y]="p.recurso ? p.marca.y - tam * 0.08 : p.marca.y"
@@ -41,9 +49,29 @@
 
   <!-- Hexágonos: terreno, ficha con el número y los pips debajo. -->
   @for (h of hexagonos(); track h.id) {
-    <g>
+    <g
+      [class.cursor-pointer]="revision()"
+      [attr.role]="revision() ? 'button' : null"
+      [attr.tabindex]="revision() ? 0 : null"
+      (click)="revision() && tocarHexagono.emit(h.id)"
+      (keydown.enter)="revision() && tocarHexagono.emit(h.id)"
+    >
       <title>{{ h.nombre }}</title>
-      <polygon [attr.points]="h.esquinas" [attr.fill]="h.color" stroke="#f5e6c4" [attr.stroke-width]="tam * 0.04" />
+      <polygon
+        [attr.points]="h.esquinas" [attr.fill]="h.color"
+        [attr.stroke]="h.seleccionado ? '#b5532b' : h.dudoso && revision() ? '#f59e0b' : '#f5e6c4'"
+        [attr.stroke-width]="tam * (h.seleccionado ? 0.12 : h.dudoso && revision() ? 0.09 : 0.04)"
+      />
+      @if (revision() && h.dudoso) {
+        <text [attr.x]="h.centro.x" [attr.y]="h.centro.y - tam * 0.62" text-anchor="middle"
+              dominant-baseline="central" [attr.font-size]="tam * 0.3" font-weight="700" fill="#92400e">?</text>
+      }
+      @if (revision() && !h.numero && !h.desierto) {
+        <circle [attr.cx]="h.centro.x" [attr.cy]="h.centro.y" [attr.r]="tam * 0.42"
+                fill="#fdf6e3" stroke="#57534e" [attr.stroke-width]="tam * 0.02" stroke-dasharray="4 3" />
+        <text [attr.x]="h.centro.x" [attr.y]="h.centro.y" text-anchor="middle" dominant-baseline="central"
+              [attr.font-size]="tam * 0.36" fill="#78716c">–</text>
+      }
       @if (h.numero) {
         <circle
           [attr.cx]="h.centro.x" [attr.cy]="h.centro.y" [attr.r]="tam * 0.42"
@@ -147,6 +175,17 @@
         <text [attr.x]="p.centro.x" [attr.y]="p.centro.y" text-anchor="middle" dominant-baseline="central"
               [attr.font-size]="tam * 0.34" font-weight="700" fill="#3b2412" opacity="0.5">×</text>
       }
+    </g>
+  }
+
+  <!-- Revisión: aristas de la costa a las que se puede mover el puerto seleccionado. -->
+  @for (d of segmentosDestino(); track $index) {
+    <g class="cursor-pointer" role="button" tabindex="0" aria-label="Mover el puerto aquí"
+       (click)="tocarArista.emit(d.arista)" (keydown.enter)="tocarArista.emit(d.arista)">
+      <line [attr.x1]="d.a.x" [attr.y1]="d.a.y" [attr.x2]="d.b.x" [attr.y2]="d.b.y"
+            stroke="transparent" [attr.stroke-width]="tam * 0.4" />
+      <line [attr.x1]="d.a.x" [attr.y1]="d.a.y" [attr.x2]="d.b.x" [attr.y2]="d.b.y"
+            stroke="#b5532b" [attr.stroke-width]="tam * 0.1" stroke-dasharray="6 4" stroke-linecap="round" />
     </g>
   }
 </svg>

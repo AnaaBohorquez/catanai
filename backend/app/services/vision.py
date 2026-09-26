@@ -14,6 +14,8 @@ Eso permite evitar por completo la detección abierta de objetos:
 
 El resultado nunca se da por definitivo: cada hexágono viaja con su confianza, y
 la interfaz pide confirmación antes de calcular.
+
+La imagen solo se procesa en memoria: no se guarda en disco ni en ningún registro.
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ from __future__ import annotations
 import cv2
 import numpy as np
 
+from app.domain.puertos import plantilla_de_puertos
 from app.domain.tablero import coordenadas_hexagonos
 from app.schemas.api import HexagonoDetectado, RespuestaVision, Tablero
 from app.services.serializers import (
@@ -34,7 +37,9 @@ from app.services.serializers import (
 LADO = 900
 
 #: Rangos de tono, saturación y valor (HSV de OpenCV, H de 0 a 179) de cada
-#: terreno. Medidos sobre fotos de tableros con iluminación de interior.
+#: terreno. Son rangos INICIALES, estimados a ojo sobre los colores del juego: NO
+#: están calibrados con fotos reales. Se calibran con scripts/calibrar_vision.py a
+#: partir de una foto del tablero con sus terrenos correctos.
 RANGOS = {
     "bosque":   {"h": (30, 85),   "s": (60, 255), "v": (30, 165)},
     "pastos":   {"h": (30, 85),   "s": (40, 255), "v": (150, 255)},
@@ -47,7 +52,10 @@ RANGOS = {
 
 def leer_tablero(imagen_bytes: bytes) -> RespuestaVision:
     """
-    Detecta terrenos y números a partir de la foto de un tablero vacío.
+    Detecta los terrenos a partir de la foto de un tablero vacío.
+
+    Los números no se leen todavía (llegan vacíos) y los puertos llegan como la
+    plantilla del marco: el usuario completa y confirma ambos al revisar.
 
     Parameters
     ----------
@@ -85,8 +93,12 @@ def leer_tablero(imagen_bytes: bytes) -> RespuestaVision:
         ],
         "puertos": [],
     })
+    # La foto no lee los puertos: se parte de la plantilla del marco, que el
+    # usuario confirma o corrige en la pantalla de revisión.
+    tablero["puertos"] = plantilla_de_puertos(tablero["hexagonos"])
 
     avisos = avisos_del_tablero(tablero)
+    avisos.append("Los puertos son una plantilla del marco: confírmalos o corrígelos.")
     if not encontrado:
         avisos.insert(0, "No se localizó el borde del tablero; la lectura puede fallar.")
 

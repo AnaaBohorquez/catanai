@@ -3,7 +3,14 @@ import { Component, OnInit, computed, effect, inject, signal, untracked } from '
 import { timeout } from 'rxjs';
 
 import { ColonoApi } from './api/colono-api';
-import type { EstadoColocacion, Opcion, RespuestaRecomendar, Tablero } from './api/tipos';
+import type {
+  EstadoColocacion,
+  Hexagono,
+  Opcion,
+  RespuestaRecomendar,
+  Tablero,
+  Terreno,
+} from './api/tipos';
 import { AsistenteComponent, type Actualizacion } from './asistente/asistente';
 import {
   MAX_PROPIOS,
@@ -13,6 +20,10 @@ import {
   propios,
   rivales,
 } from './colocacion';
+import { reducirFoto } from './foto/reducir';
+import { type Arista, destinosPosibles, girarPuertos } from './revision/costa';
+import { PanelRevisionComponent } from './revision/panel-revision';
+import { RECURSO_DE_TERRENO, pipsDe, sinNumero } from './revision/reparto';
 import { BarraMarcadoComponent } from './tablero/barra-marcado';
 import { bloqueados } from './tablero/geometria';
 import { TableroComponent } from './tablero/tablero';
@@ -32,8 +43,11 @@ const LIMITE_ESPERA_MS = 90_000;
 const ESPERA_RECALCULO_MS = 400;
 const DURACION_AVISO_MS = 3_500;
 
+/** Por debajo de esta confianza, la visión pide revisar el terreno. */
+const CONFIANZA_DUDOSA = 0.55;
+
 @Component({
-  imports: [TableroComponent, AsistenteComponent, BarraMarcadoComponent],
+  imports: [TableroComponent, AsistenteComponent, BarraMarcadoComponent, PanelRevisionComponent],
   selector: 'app-root',
   styleUrl: './app.css',
   templateUrl: './app.html',
@@ -88,6 +102,32 @@ export class App implements OnInit {
   protected readonly bloqueados = computed<ReadonlySet<string>>(() =>
     bloqueados(Object.keys(this.marcas()), (this.tablero()?.vertices ?? []).map((v) => v.id)),
   );
+
+  // --- Foto y revisión del tablero ----------------------------------------------
+
+  protected readonly leyendoFoto = signal(false);
+  /** Revisando: se corrigen terrenos, números y puertos antes de recomendar. */
+  protected readonly revisando = signal(false);
+  protected readonly dudosos = signal<ReadonlySet<string>>(new Set());
+  protected readonly hexSeleccionado = signal<string | null>(null);
+  protected readonly puertoSeleccionado = signal<number | null>(null);
+  protected readonly mensajeRevision = signal<string | null>(null);
+  protected readonly avisosRevision = signal<string[] | null>(null);
+  protected readonly confirmando = signal(false);
+
+  protected readonly hexagono = computed<Hexagono | null>(
+    () => this.tablero()?.hexagonos.find((h) => h.id === this.hexSeleccionado()) ?? null,
+  );
+  protected readonly destinos = computed<Arista[]>(() => {
+    const t = this.tablero();
+    const i = this.puertoSeleccionado();
+    return t && i !== null ? destinosPosibles(t, i) : [];
+  });
+
+  /** El tablero de antes de revisar, para "Descartar cambios". */
+  private respaldo: Tablero | null = null;
+  /** El tablero ya validado por el backend, a la espera de "Continuar de todos modos". */
+  private validado: Tablero | null = null;
 
   /** Tras el primer "Recomendar" de un tablero, las marcas recalculan solas. */
   private recomendacionActiva = false;
@@ -153,6 +193,179 @@ export class App implements OnInit {
         this.cargando.set(false);
       },
     });
+  }
+
+  /** Tomar o subir una foto: se reduce en el navegador y se lee en el backend. */
+  protected async subirFoto(evento: Event): Promise<void> {
+    const entrada = evento.target as HTMLInputElement;
+    const archivo = entrada.files?.[0];
+    entrada.value = ''; // permite volver a elegir la misma foto
+    if (!archivo) return;
+    this.leyendoFoto.set(true);
+    this.error.set(null);
+    let foto: Blob;
+    try {
+      foto = await reducirFoto(archivo);
+    } catch {
+      this.error.set('No se pudo abrir esa imagen. Prueba con una foto JPG o PNG.');
+      this.leyendoFoto.set(false);
+      return;
+    }
+    this.api.leerFoto(foto).subscribe({
+      next: (lectura) => {
+        this.respaldo = this.tablero();
+        const dudosos = lectura.detecciones
+          .filter((d) => d.confianza_terreno < CONFIANZA_DUDOSA)
+          .map((d) => d.id);
+        this.entrarEnRevision(lectura.tablero, new Set(dudosos), lectura.mensaje);
+        this.leyendoFoto.set(false);
+      },
+      error: (e: HttpErrorResponse) => {
+        // Se conserva el tablero anterior: una foto fallida no debe borrar nada.
+        this.error.set(mensajeDeError(e));
+        this.leyendoFoto.set(false);
+      },
+    });
+  }
+
+  /** Editar a mano cualquier tablero, por ejemplo el de demostración. */
+  protected editarTablero(): void {
+    const tablero = this.tablero();
+    if (!tablero) return;
+    this.respaldo = tablero;
+    this.entrarEnRevision(tablero, new Set(), null);
+  }
+
+  private entrarEnRevision(tablero: Tablero, dudosos: ReadonlySet<string>, mensaje: string | null) {
+    this.tablero.set(tablero);
+    // Un tablero en revisión todavía no sirve para recomendar: marcas y opciones fuera.
+    this.respuesta.set(null);
+    this.marcas.set({});
+    this.modo.set(null);
+    this.recomendacionActiva = false;
+    this.firmaRespuesta = null;
+    this.errorRecomendar.set(null);
+    this.conversacion.update((n) => n + 1);
+
+    this.revisando.set(true);
+    this.dudosos.set(dudosos);
+    this.mensajeRevision.set(mensaje);
+    this.avisosRevision.set(null);
+    this.puertoSeleccionado.set(null);
+    // Se empieza por lo que más urge: un terreno dudoso o, si no, un hexágono sin número.
+    const primero = tablero.hexagonos.find((h) => dudosos.has(h.id)) ?? sinNumero(tablero.hexagonos)[0];
+    this.hexSeleccionado.set(primero?.id ?? null);
+  }
+
+  protected tocarHexagono(id: string): void {
+    this.hexSeleccionado.set(id);
+    this.puertoSeleccionado.set(null);
+  }
+
+  protected cambiarTerreno(terreno: Terreno): void {
+    this.editarHexagono((h) => ({
+      ...h,
+      terreno,
+      recurso: RECURSO_DE_TERRENO[terreno],
+      // El desierto no lleva ficha.
+      numero: terreno === 'desierto' ? null : h.numero,
+      pips: terreno === 'desierto' ? 0 : h.pips,
+    }));
+    // Corregido a mano: deja de ser dudoso.
+    const id = this.hexSeleccionado();
+    if (id) this.dudosos.update((d) => new Set([...d].filter((x) => x !== id)));
+  }
+
+  protected cambiarNumero(numero: number | null): void {
+    const teniaNumero = !!this.hexagono()?.numero;
+    this.editarHexagono((h) => ({ ...h, numero, pips: pipsDe(numero) }));
+    // Al poner el primer número de un hexágono se pasa al siguiente: 18 números
+    // seguidos se escriben sin volver a tocar el tablero.
+    if (!teniaNumero && numero) this.siguienteSinNumero();
+  }
+
+  protected siguienteSinNumero(): void {
+    const t = this.tablero();
+    if (!t) return;
+    const pendientes = sinNumero(t.hexagonos);
+    const actual = t.hexagonos.findIndex((h) => h.id === this.hexSeleccionado());
+    const despues = pendientes.find((h) => t.hexagonos.indexOf(h) > actual) ?? pendientes[0];
+    if (despues) this.hexSeleccionado.set(despues.id);
+  }
+
+  private editarHexagono(cambio: (h: Hexagono) => Hexagono): void {
+    const id = this.hexSeleccionado();
+    this.tablero.update((t) =>
+      t ? { ...t, hexagonos: t.hexagonos.map((h) => (h.id === id ? cambio(h) : h)) } : t,
+    );
+    this.avisosRevision.set(null);
+  }
+
+  protected tocarPuerto(indice: number): void {
+    this.puertoSeleccionado.set(this.puertoSeleccionado() === indice ? null : indice);
+    this.hexSeleccionado.set(null);
+  }
+
+  protected cambiarTipoPuerto(tipo: string): void {
+    const i = this.puertoSeleccionado();
+    this.tablero.update((t) =>
+      t ? { ...t, puertos: t.puertos.map((p, j) => (j === i ? { ...p, tipo } : p)) } : t,
+    );
+  }
+
+  protected girarPuertos(): void {
+    this.tablero.update((t) => (t ? { ...t, puertos: girarPuertos(t) } : t));
+  }
+
+  protected moverPuerto(arista: Arista): void {
+    const i = this.puertoSeleccionado();
+    this.tablero.update((t) =>
+      t
+        ? { ...t, puertos: t.puertos.map((p, j) => (j === i ? { ...p, vertices: [...arista] } : p)) }
+        : t,
+    );
+  }
+
+  /** El backend reconstruye el tablero (pips, vértices, puertos) y dice qué no cuadra. */
+  protected confirmarTablero(): void {
+    const t = this.tablero();
+    if (!t) return;
+    this.confirmando.set(true);
+    this.api.validar(t).subscribe({
+      next: ({ tablero, avisos }) => {
+        this.confirmando.set(false);
+        if (avisos?.length) {
+          this.validado = tablero;
+          this.avisosRevision.set(avisos);
+        } else {
+          this.salirDeRevision(tablero);
+        }
+      },
+      error: (e: HttpErrorResponse) => {
+        this.confirmando.set(false);
+        this.avisosRevision.set([mensajeDeError(e)]);
+      },
+    });
+  }
+
+  protected continuarConAvisos(): void {
+    if (this.validado) this.salirDeRevision(this.validado);
+  }
+
+  protected descartarRevision(): void {
+    this.salirDeRevision(this.respaldo);
+  }
+
+  private salirDeRevision(tablero: Tablero | null): void {
+    this.tablero.set(tablero);
+    this.revisando.set(false);
+    this.hexSeleccionado.set(null);
+    this.puertoSeleccionado.set(null);
+    this.avisosRevision.set(null);
+    this.mensajeRevision.set(null);
+    this.dudosos.set(new Set());
+    this.validado = null;
+    this.respaldo = null;
   }
 
   protected cambiarJugadores(n: number): void {

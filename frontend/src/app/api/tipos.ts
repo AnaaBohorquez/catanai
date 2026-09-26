@@ -20,3 +20,5 @@ export type PeticionChat = Esquemas['PeticionChat'];
 export type RespuestaChat = Esquemas['RespuestaChat'];
 export type MensajeChat = Esquemas['Mensaje'];
 export type EstadoColocacion = Esquemas['EstadoColocacion'];
+export type RespuestaVision = Esquemas['RespuestaVision'];
+export type TableroConAvisos = Esquemas['TableroConAvisos'];

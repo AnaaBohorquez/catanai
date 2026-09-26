@@ -8,8 +8,10 @@ import type {
   PeticionRecomendar,
   RespuestaChat,
   RespuestaRecomendar,
+  RespuestaVision,
   Salud,
   Tablero,
+  TableroConAvisos,
 } from './tipos';
 
 /**
@@ -37,5 +39,17 @@ export class ColonoApi {
 
   chat(peticion: PeticionChat): Observable<RespuestaChat> {
     return this.http.post<RespuestaChat>(`${this.base}/chat`, peticion);
+  }
+
+  /** Envía la foto (ya reducida) para leer los terrenos del tablero. */
+  leerFoto(foto: Blob): Observable<RespuestaVision> {
+    const formulario = new FormData();
+    formulario.append('foto', foto, 'tablero.jpg');
+    return this.http.post<RespuestaVision>(`${this.base}/vision/tablero`, formulario);
+  }
+
+  /** El backend reconstruye el tablero (pips, vértices, puertos) y dice qué no cuadra. */
+  validar(tablero: Tablero): Observable<TableroConAvisos> {
+    return this.http.post<TableroConAvisos>(`${this.base}/tableros/validar`, tablero);
   }
 }

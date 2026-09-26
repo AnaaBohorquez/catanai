@@ -205,6 +205,18 @@ Tras el primer "Recomendar", cada cambio de marcas recalcula solo, y el asistent
 
 ---
 
+## 12. De la foto al tablero
+
+1. **Tomar o subir la foto.** En el celular, «📷 Tomar foto» abre la cámara trasera. Antes de enviarla, el navegador la reduce a 1600 px y respeta su orientación. El backend la procesa en memoria y **no la guarda**.
+2. **Enderezar.** El tablero se ve en perspectiva. La visión busca su contorno, le ajusta un cuadrilátero y calcula una **homografía**: la transformación que convierte ese cuadrilátero en un cuadrado visto desde arriba. Con el tablero derecho ya se sabe dónde cae cada uno de los 19 hexágonos.
+3. **Clasificar por color.** De cada hexágono se toma un anillo (el centro lo tapa la ficha) y se cuenta qué proporción de píxeles cae en el rango de color de cada terreno. La **confianza** castiga los empates: si dos terrenos puntúan parecido, el hexágono se marca como dudoso (borde ámbar y «?»).
+4. **Revisar a mano.** La foto **no lee los números** ni los puertos. En la revisión se corrigen los terrenos dudosos, se escriben los 18 números (el contador dice cuáles faltan) y se confirma la plantilla de puertos.
+5. **Confirmar.** El backend reconstruye el tablero y avisa si no cuadra con el juego base: el reparto de terrenos (4-4-4-3-3-1), las 18 fichas, los 58 pips y los 9 puertos.
+
+**Qué tan bien funciona, medido con honestidad:** con una imagen sintética de colores exactos acierta el 100 % de los terrenos sobre fondo negro, pero solo entre el 26 % y el 42 % sobre fondos parecidos a una mesa real. El problema no es el color: es que el paso 2 confunde la mesa con el tablero. Los colores, además, **no están calibrados** con fotos reales. Por eso la revisión manual es parte del flujo y no un extra.
+
+---
+
 ## Pendientes
 
 - [ ] Implementar `produccion_efectiva` con las tasas de cambio 4:1, 3:1 y 2:1

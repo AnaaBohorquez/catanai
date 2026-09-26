@@ -80,6 +80,7 @@ Un `npm start` que ya corría **no** relee `angular.json`: si cambia, reinícial
 | **Datos por simulación propia** | Aprobado explícitamente por el profesor. No existe API pública de partidas de Catan |
 | **La foto solo lee el tablero VACÍO** | Detectar poblados ajenos es mucho más difícil (piezas de 1 cm, ocluidas, en cuatro colores) y un fallo invalidaría la recomendación. Los poblados ajenos se marcan con clic, que además es más rápido para quien está sentado en la mesa |
 | **Sin login ni panel de administrador** | El profesor declaró el login opcional el 12 de septiembre. Para este producto no hay datos multiusuario que administrar |
+| **Puertos de un tablero de foto: plantilla editable** | La foto no lee puertos. Se parte del patrón del marco (`domain/puertos.py`: separaciones 3-3-4 sobre las 30 aristas de costa) y el usuario gira, mueve y cambia tipos al revisar. Es una aproximación: las posiciones reales se confirman contra el tablero físico |
 | **Render con Python nativo + uv, no Docker** | Sin Docker en la máquina de desarrollo, la imagen solo se probaría en Render, con un ciclo de commit y build por cada fallo. Render corre los mismos comandos `uv` que se usan en local |
 | **Chat con LLM y herramientas** | El profesor ve un chat que entiende preguntas libres. El LLM no recibe datos en el prompt: los pide a herramientas del backend, y un verificador rechaza cifras que no salgan de ellas. Sin clave, sin presupuesto o si algo falla, responde con plantillas |
 | **Las alternativas no incluyen la familia desequilibrada** | Su consejo es "cambia de pareja". Antes aparecía como opción 2 o 3 en 6 de 30 tableros. `SOLO_SI_ES_LA_MEJOR` en `recomendador.py` solo la deja entrar como opción 1. Diversificar cuesta en promedio 0.74 puntos estimados en la opción 2 y 1.84 en la 3, y la UI lo dice |
@@ -224,9 +225,11 @@ encuentra `modelos/colono.joblib` sin variables extra.
 | Notebooks de EDA y modelado | listos |
 | Backend: API, esquemas, tests | listo y probado en local |
 | Dockerfile | desactualizado: no copia `modelos/` (el despliegue no lo usa) |
-| Visión: terreno por color | listo, sin calibrar con fotos reales |
-| Visión: lectura de números | pendiente (devuelve `numero=None`) |
-| Visión: puertos | pendiente (devuelve `puertos: []`); plantilla editable propuesta |
+| Visión: terreno por color | funciona, **sin calibrar con fotos reales**. En imagen sintética: 100 % sobre fondo negro, pero **26–42 % sobre fondos realistas** (madera, mantel, gris): la máscara de `_rectificar()` toma la mesa como tablero. Pendiente: segmentar por el marco azul. `scripts/calibrar_vision.py` calibra los colores |
+| Visión: lectura de números | pendiente: se escriben a mano en la revisión |
+| Visión: puertos | plantilla del marco, editable en la revisión |
+| Revisión del tablero | lista: corregir terreno y número por hexágono, contador contra el reparto, girar/mover/cambiar puertos, confirmar con `/tableros/validar` (que ahora también revisa el reparto de terrenos y de fichas) |
+| Foto | subir o tomar con la cámara del celular (`capture`); se reduce a 1600 px en el navegador y no se guarda en el backend |
 | Chat: plantillas y LLM | LLM con herramientas, verificador, límites y registro listos y probados con un cliente simulado. Falta la clave para probarlo en vivo y correr `scripts/evaluar_chat.py` |
 | Reglas verificadas | borrador de 17 entradas en `domain/reglas.md`, **ninguna verificada**: hasta entonces el chat no cita reglas. `test_la_regla_de_costos_coincide_con_la_tabla_del_codigo` mantiene la de costos igual a `COSTOS` |
 | Marcar la colocación | modo + toque (Mi poblado, Rival, Borrar); regla de distancia en el cliente; recálculo automático; segunda colocación con `mio`. Los caminos no cuentan todavía |

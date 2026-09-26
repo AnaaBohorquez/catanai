@@ -86,3 +86,25 @@ body {
   outline: 2px solid var(--color-accion);
   outline-offset: 2px;
 }
+
+/* Botones secundarios sobre la madera: demostración, fotos y editar. */
+.boton-foto {
+  display: inline-flex;
+  cursor: pointer;
+  align-items: center;
+  gap: 0.35rem;
+  border-radius: 0.5rem;
+  border: 1px solid rgb(254 243 199 / 0.4);
+  padding: 0.5rem 0.9rem;
+  font-weight: 600;
+  color: #fffbeb;
+}
+
+.boton-foto:hover {
+  background-color: rgb(255 255 255 / 0.1);
+}
+
+.boton-foto:focus-within {
+  outline: 2px solid var(--color-accion);
+  outline-offset: 2px;
+}

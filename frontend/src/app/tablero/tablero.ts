@@ -2,6 +2,7 @@ import { Component, computed, input, output } from '@angular/core';
 
 import type { Opcion, Tablero } from '../api/tipos';
 import type { Marca, Marcas, ModoMarcado } from '../colocacion';
+import type { Arista } from '../revision/costa';
 import { COLOR_MEDALLA, COLOR_RECURSO, COLOR_TERRENO, type Recurso } from '../estilo-catan';
 import {
   Punto,
@@ -27,6 +28,10 @@ interface HexDibujo {
   nombre: string;
   /** Hay una opción seleccionada y este hexágono no la alimenta: se atenúa. */
   atenuado: boolean;
+  /** Revisión: la visión no está segura de su terreno. */
+  dudoso: boolean;
+  seleccionado: boolean;
+  desierto: boolean;
 }
 
 interface PuertoDibujo {
@@ -87,6 +92,18 @@ export class TableroComponent {
   /** El usuario tocó un vértice en modo de marcado; el padre decide qué hacer. */
   readonly tocarVertice = output<string>();
 
+  // --- Revisión del tablero --------------------------------------------------------
+  /** En revisión se tocan hexágonos y puertos para corregirlos. */
+  readonly revision = input(false);
+  readonly dudosos = input<ReadonlySet<string>>(new Set());
+  readonly hexSeleccionado = input<string | null>(null);
+  readonly puertoSeleccionado = input<number | null>(null);
+  /** Aristas de costa a las que se puede mover el puerto seleccionado. */
+  readonly destinos = input<Arista[]>([]);
+  readonly tocarHexagono = output<string>();
+  readonly tocarPuerto = output<number>();
+  readonly tocarArista = output<Arista>();
+
   protected readonly tam = TAM;
 
   /**
@@ -114,6 +131,9 @@ export class TableroComponent {
         pips: numero ? puntosPips(h.pips, centro, TAM) : [],
         nombre: numero ? `${h.terreno}, ${numero} (${h.pips} pips)` : h.terreno,
         atenuado: resaltados !== null && !resaltados.has(h.id),
+        dudoso: this.dudosos().has(h.id),
+        seleccionado: this.hexSeleccionado() === h.id,
+        desierto: h.terreno === 'desierto',
       };
     });
   });
@@ -166,6 +186,14 @@ export class TableroComponent {
             })),
     );
   });
+
+  protected readonly segmentosDestino = computed(() =>
+    this.destinos().map((arista) => ({
+      arista,
+      a: centroVertice(arista[0], TAM),
+      b: centroVertice(arista[1], TAM),
+    })),
+  );
 
   protected readonly marcados = computed<MarcaDibujo[]>(() =>
     Object.entries(this.marcas()).map(([id, tipo]) => ({ id, tipo, centro: centroVertice(id, TAM) })),

@@ -116,6 +116,10 @@ class HexagonoDetectado(BaseModel):
 class RespuestaVision(BaseModel):
     tablero: Tablero
     detecciones: list[HexagonoDetectado]
+    puertos_confirmados: bool = Field(
+        default=False,
+        description="La foto no lee puertos: llegan como plantilla que el usuario confirma",
+    )
     avisos: list[str] = []
     mensaje: str = Field(
         description="Qué debe revisar el usuario antes de calcular"
