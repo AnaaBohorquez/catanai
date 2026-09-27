@@ -83,6 +83,14 @@
           [attr.font-size]="tam * 0.36" font-weight="700"
           [attr.fill]="h.rojo ? '#b91c1c' : '#1c1917'"
         >{{ h.numero }}</text>
+        @if (revision() && h.numeroDudoso) {
+          <!-- Número leído con poco margen: aro ámbar y «?» para revisarlo. -->
+          <circle [attr.cx]="h.centro.x" [attr.cy]="h.centro.y" [attr.r]="tam * 0.46"
+                  fill="none" stroke="#f59e0b" [attr.stroke-width]="tam * 0.07" />
+          <text [attr.x]="h.centro.x + tam * 0.42" [attr.y]="h.centro.y - tam * 0.36"
+                text-anchor="middle" dominant-baseline="central"
+                [attr.font-size]="tam * 0.26" font-weight="700" fill="#92400e">?</text>
+        }
         @for (pip of h.pips; track $index) {
           <circle
             [attr.cx]="pip.x" [attr.cy]="pip.y" [attr.r]="tam * 0.035"

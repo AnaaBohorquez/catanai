@@ -149,6 +149,18 @@ def test_validar_detecta_un_reparto_de_terrenos_o_fichas_incorrecto():
     assert any("fichas no son" in a for a in avisos)
 
 
+def test_la_plantilla_coincide_con_el_tablero_de_referencia():
+    """Posiciones medidas en la foto de principiantes (índices de arista de costa)."""
+    hexagonos = coordenadas_hexagonos()
+    costa = aristas_de_costa_en_orden(hexagonos)
+    puertos = plantilla_de_puertos(hexagonos)
+    posiciones = sorted(costa.index(a) for a in puertos)
+    assert posiciones == [2, 5, 9, 12, 15, 19, 22, 25, 29]
+    assert puertos[costa[5]] == "ladrillo"
+    assert puertos[costa[15]] == "trigo"
+    assert sorted(t for t in puertos.values() if t == "3:1") == ["3:1"] * 4
+
+
 def test_verificar_puertos_detecta_un_reparto_incorrecto():
     hexagonos = coordenadas_hexagonos()
     puertos = {a: "3:1" for a in plantilla_de_puertos(hexagonos)}

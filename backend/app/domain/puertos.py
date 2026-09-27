@@ -3,11 +3,12 @@ Puertos del marco: plantilla para tableros que vienen de una foto.
 
 La foto no lee los puertos, así que un tablero fotografiado arranca con una
 plantilla que el usuario confirma o corrige. La plantilla reparte los 9 puertos a
-lo largo de la costa con el patrón simétrico del marco del juego base: separaciones
+lo largo de la costa como en el tablero de principiantes del juego base: separaciones
 de 3, 3 y 4 aristas, tres veces (3+3+4 = 10, y 3 × 10 = 30 aristas de costa).
 
-Es una aproximación estándar, no la copia de un marco concreto: las posiciones y los
-tipos exactos se confirman contra el tablero físico.
+Las posiciones se midieron sobre una foto de referencia; los tipos de tres puertos
+siguen por confirmar (``POR_CONFIRMAR``). En cualquier caso el usuario los edita al
+revisar, porque cada marco se puede armar distinto.
 """
 
 from __future__ import annotations
@@ -17,13 +18,21 @@ from collections import Counter
 
 from app.domain.tablero import PUERTOS, todas_las_aristas
 
-#: Posiciones de los 9 puertos sobre las 30 aristas de costa, en orden.
-_POSICIONES = [0, 3, 6, 10, 13, 16, 20, 23, 26]
+#: Posiciones de los 9 puertos sobre las 30 aristas de costa (0 = la de arriba, en
+#: sentido horario). Medidas sobre la foto de referencia del tablero de principiantes
+#: (logs/ejemplo-tablero.png): separaciones 3-4-3-3-4-3-3-4-3.
+_POSICIONES = [2, 5, 9, 12, 15, 19, 22, 25, 29]
 
-#: Tipos por defecto, en el orden de las posiciones. Se confirman a mano.
+#: Tipos en el orden de las posiciones. Los 3:1, el ladrillo (vela roja) y el trigo
+#: (vela amarilla) se leen con claridad en la foto de referencia. Madera, oveja y
+#: mineral tienen íconos oscuros que a esa resolución no se distinguen: van por su
+#: color (madera = el marrón saturado) y están POR CONFIRMAR con el tablero físico.
 TIPOS_POR_DEFECTO = [
-    "3:1", "trigo", "mineral", "3:1", "oveja", "3:1", "3:1", "ladrillo", "madera",
+    "3:1", "ladrillo", "madera", "3:1", "trigo", "oveja", "3:1", "mineral", "3:1",
 ]
+
+#: Los tipos de la plantilla que aún no se han comprobado contra el tablero físico.
+POR_CONFIRMAR = {"madera", "oveja", "mineral"}
 
 #: Aristas que avanza la plantilla por cada giro de 60° (30 aristas / 6 lados).
 _ARISTAS_POR_GIRO = 5

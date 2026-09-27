@@ -45,6 +45,8 @@ const DURACION_AVISO_MS = 3_500;
 
 /** Por debajo de esta confianza, la visión pide revisar el terreno. */
 const CONFIANZA_DUDOSA = 0.55;
+/** Por debajo de esta confianza, el número se leyó con poco margen: se revisa. */
+const CONFIANZA_NUMERO = 0.5;
 
 @Component({
   imports: [TableroComponent, AsistenteComponent, BarraMarcadoComponent, PanelRevisionComponent],
@@ -109,6 +111,8 @@ export class App implements OnInit {
   /** Revisando: se corrigen terrenos, números y puertos antes de recomendar. */
   protected readonly revisando = signal(false);
   protected readonly dudosos = signal<ReadonlySet<string>>(new Set());
+  /** Hexágonos cuyo número leyó la visión con poco margen: se revisan a mano. */
+  protected readonly numerosDudosos = signal<ReadonlySet<string>>(new Set());
   protected readonly hexSeleccionado = signal<string | null>(null);
   protected readonly puertoSeleccionado = signal<number | null>(null);
   protected readonly mensajeRevision = signal<string | null>(null);
@@ -217,7 +221,10 @@ export class App implements OnInit {
         const dudosos = lectura.detecciones
           .filter((d) => d.confianza_terreno < CONFIANZA_DUDOSA)
           .map((d) => d.id);
-        this.entrarEnRevision(lectura.tablero, new Set(dudosos), lectura.mensaje);
+        const numerosDudosos = lectura.detecciones
+          .filter((d) => d.numero && d.confianza_numero < CONFIANZA_NUMERO)
+          .map((d) => d.id);
+        this.entrarEnRevision(lectura.tablero, new Set(dudosos), lectura.mensaje, new Set(numerosDudosos));
         this.leyendoFoto.set(false);
       },
       error: (e: HttpErrorResponse) => {
@@ -233,10 +240,15 @@ export class App implements OnInit {
     const tablero = this.tablero();
     if (!tablero) return;
     this.respaldo = tablero;
-    this.entrarEnRevision(tablero, new Set(), null);
+    this.entrarEnRevision(tablero, new Set(), null, new Set());
   }
 
-  private entrarEnRevision(tablero: Tablero, dudosos: ReadonlySet<string>, mensaje: string | null) {
+  private entrarEnRevision(
+    tablero: Tablero,
+    dudosos: ReadonlySet<string>,
+    mensaje: string | null,
+    numerosDudosos: ReadonlySet<string>,
+  ) {
     this.tablero.set(tablero);
     // Un tablero en revisión todavía no sirve para recomendar: marcas y opciones fuera.
     this.respuesta.set(null);
@@ -249,6 +261,7 @@ export class App implements OnInit {
 
     this.revisando.set(true);
     this.dudosos.set(dudosos);
+    this.numerosDudosos.set(numerosDudosos);
     this.mensajeRevision.set(mensaje);
     this.avisosRevision.set(null);
     this.puertoSeleccionado.set(null);
@@ -278,16 +291,24 @@ export class App implements OnInit {
 
   protected cambiarNumero(numero: number | null): void {
     const teniaNumero = !!this.hexagono()?.numero;
+    const id = this.hexSeleccionado();
+    const eraDudoso = !!id && this.numerosDudosos().has(id);
     this.editarHexagono((h) => ({ ...h, numero, pips: pipsDe(numero) }));
-    // Al poner el primer número de un hexágono se pasa al siguiente: 18 números
-    // seguidos se escriben sin volver a tocar el tablero.
-    if (!teniaNumero && numero) this.siguienteSinNumero();
+    // Revisado a mano (aunque se confirme el mismo número): deja de ser dudoso.
+    if (id) this.numerosDudosos.update((d) => new Set([...d].filter((x) => x !== id)));
+    // Al poner un número nuevo o revisar uno dudoso se pasa al siguiente pendiente:
+    // la revisión se hace tocando solo números, sin volver al tablero.
+    if (numero && (!teniaNumero || eraDudoso)) this.siguienteSinNumero();
   }
 
   protected siguienteSinNumero(): void {
     const t = this.tablero();
     if (!t) return;
-    const pendientes = sinNumero(t.hexagonos);
+    const dudosos = this.numerosDudosos();
+    const pendientes = [
+      ...sinNumero(t.hexagonos),
+      ...t.hexagonos.filter((h) => dudosos.has(h.id)),
+    ];
     const actual = t.hexagonos.findIndex((h) => h.id === this.hexSeleccionado());
     const despues = pendientes.find((h) => t.hexagonos.indexOf(h) > actual) ?? pendientes[0];
     if (despues) this.hexSeleccionado.set(despues.id);
@@ -364,6 +385,7 @@ export class App implements OnInit {
     this.avisosRevision.set(null);
     this.mensajeRevision.set(null);
     this.dudosos.set(new Set());
+    this.numerosDudosos.set(new Set());
     this.validado = null;
     this.respaldo = null;
   }

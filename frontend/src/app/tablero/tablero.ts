@@ -30,6 +30,8 @@ interface HexDibujo {
   atenuado: boolean;
   /** Revisión: la visión no está segura de su terreno. */
   dudoso: boolean;
+  /** Revisión: la visión leyó el número con poco margen. */
+  numeroDudoso: boolean;
   seleccionado: boolean;
   desierto: boolean;
 }
@@ -96,6 +98,7 @@ export class TableroComponent {
   /** En revisión se tocan hexágonos y puertos para corregirlos. */
   readonly revision = input(false);
   readonly dudosos = input<ReadonlySet<string>>(new Set());
+  readonly numerosDudosos = input<ReadonlySet<string>>(new Set());
   readonly hexSeleccionado = input<string | null>(null);
   readonly puertoSeleccionado = input<number | null>(null);
   /** Aristas de costa a las que se puede mover el puerto seleccionado. */
@@ -132,6 +135,7 @@ export class TableroComponent {
         nombre: numero ? `${h.terreno}, ${numero} (${h.pips} pips)` : h.terreno,
         atenuado: resaltados !== null && !resaltados.has(h.id),
         dudoso: this.dudosos().has(h.id),
+        numeroDudoso: this.numerosDudosos().has(h.id),
         seleccionado: this.hexSeleccionado() === h.id,
         desierto: h.terreno === 'desierto',
       };

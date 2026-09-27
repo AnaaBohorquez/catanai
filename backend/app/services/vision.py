@@ -4,16 +4,21 @@ Lectura del tablero a partir de una fotografía.
 Estrategia
 ----------
 El tablero de Catan tiene topología **fija**: 19 hexágonos en filas 3-4-5-4-3.
-Eso permite evitar por completo la detección abierta de objetos:
+Eso permite evitar la detección abierta de objetos:
 
-1. Se aísla el tablero del fondo por color (todo lo que no es mesa ni mar).
-2. Se ajusta un cuadrilátero a su contorno y se calcula una **homografía** que lo
-   rectifica a una vista cenital canónica.
-3. Con el tablero rectificado ya se sabe **exactamente** dónde cae cada hexágono,
-   así que solo hay que clasificar 19 parches pequeños por su color.
+1. **Fichas → red.** Las fichas numéricas son discos crema y cada una marca el
+   centro de su hexágono. Con unas pocas se ajusta la red hexagonal y una
+   homografía del plano canónico a la foto (``services/vision_fichas.py``). Así
+   no importa el fondo ni la perspectiva.
+2. **Terrenos.** Se clasifica por color un anillo entre la ficha y el borde de
+   cada pieza. El desierto es el único hexágono sin ficha.
+3. **Números.** Se leen por rasgos que no dependen de la tipografía (rojo,
+   dígitos, agujeros, pips) y respetando el reparto del juego base.
+4. **Respaldo.** Si no se encuentran fichas, se endereza la foto por el borde del
+   tablero (el método anterior, menos fiable) y se avisa.
 
-El resultado nunca se da por definitivo: cada hexágono viaja con su confianza, y
-la interfaz pide confirmación antes de calcular.
+El resultado nunca se da por definitivo: cada hexágono viaja con la confianza de su
+terreno y de su número, y la interfaz pide revisar lo dudoso antes de calcular.
 
 La imagen solo se procesa en memoria: no se guarda en disco ni en ningún registro.
 """
@@ -26,6 +31,7 @@ import numpy as np
 from app.domain.puertos import plantilla_de_puertos
 from app.domain.tablero import coordenadas_hexagonos
 from app.schemas.api import HexagonoDetectado, RespuestaVision, Tablero
+from app.services import vision_fichas as fichas
 from app.services.serializers import (
     avisos_del_tablero,
     id_hexagono,
@@ -33,13 +39,17 @@ from app.services.serializers import (
     tablero_desde_api,
 )
 
-#: Lado del lienzo rectificado, en píxeles.
+#: Lado del lienzo rectificado del método de respaldo, en píxeles.
 LADO = 900
+
+#: Por debajo de esta confianza, la interfaz pide revisar el terreno.
+CONFIANZA_DUDOSA = 0.55
 
 #: Rangos de tono, saturación y valor (HSV de OpenCV, H de 0 a 179) de cada
 #: terreno. Son rangos INICIALES, estimados a ojo sobre los colores del juego: NO
-#: están calibrados con fotos reales. Se calibran con scripts/calibrar_vision.py a
-#: partir de una foto del tablero con sus terrenos correctos.
+#: están calibrados con fotos de celular. Con la foto de referencia del tablero de
+#: principiantes aciertan 19/19 una vez que se muestrea en el lugar correcto. Se
+#: calibran con scripts/calibrar_vision.py.
 RANGOS = {
     "bosque":   {"h": (30, 85),   "s": (60, 255), "v": (30, 165)},
     "pastos":   {"h": (30, 85),   "s": (40, 255), "v": (150, 255)},
@@ -52,10 +62,10 @@ RANGOS = {
 
 def leer_tablero(imagen_bytes: bytes) -> RespuestaVision:
     """
-    Detecta los terrenos a partir de la foto de un tablero vacío.
+    Detecta terrenos y números a partir de la foto de un tablero vacío.
 
-    Los números no se leen todavía (llegan vacíos) y los puertos llegan como la
-    plantilla del marco: el usuario completa y confirma ambos al revisar.
+    Los puertos llegan como la plantilla del marco: el usuario los confirma al
+    revisar, igual que los terrenos y números dudosos.
 
     Parameters
     ----------
@@ -68,27 +78,25 @@ def leer_tablero(imagen_bytes: bytes) -> RespuestaVision:
         Tablero reconstruido, detecciones con su confianza y avisos.
     """
     imagen = _decodificar(imagen_bytes)
-    rectificada, encontrado = _rectificar(imagen)
+    hsv = cv2.cvtColor(imagen, cv2.COLOR_BGR2HSV)
+    seguras, radio = fichas.detectar_fichas(imagen, hsv)
+    red = fichas.ajustar_red(seguras, radio, hsv)
 
-    detecciones = []
-    terrenos, numeros = {}, {}
-    for coord in coordenadas_hexagonos():
-        parche = _parche_del_hexagono(rectificada, coord)
-        terreno, confianza = _clasificar_terreno(parche)
-        terrenos[coord] = terreno
-        detecciones.append(
-            HexagonoDetectado(
-                id=id_hexagono(coord),
-                terreno=terreno,
-                numero=None,
-                confianza_terreno=round(confianza, 2),
-                confianza_numero=0.0,
-            )
-        )
+    if red is not None:
+        detecciones = _leer_con_fichas(imagen, hsv, red)
+        avisos_lectura = []
+    else:
+        detecciones = _leer_por_borde(imagen)
+        avisos_lectura = [
+            "No encontré las fichas numéricas: los terrenos se leyeron por el borde del "
+            "tablero y los números no se leyeron. Revisa todo."
+        ]
 
+    por_coord = {d.id: d for d in detecciones}
     tablero = tablero_desde_api({
         "hexagonos": [
-            {"q": c[0], "r": c[1], "terreno": terrenos[c], "numero": numeros.get(c)}
+            {"q": c[0], "r": c[1], "terreno": por_coord[id_hexagono(c)].terreno,
+             "numero": por_coord[id_hexagono(c)].numero}
             for c in coordenadas_hexagonos()
         ],
         "puertos": [],
@@ -97,27 +105,92 @@ def leer_tablero(imagen_bytes: bytes) -> RespuestaVision:
     # usuario confirma o corrige en la pantalla de revisión.
     tablero["puertos"] = plantilla_de_puertos(tablero["hexagonos"])
 
-    avisos = avisos_del_tablero(tablero)
+    avisos = avisos_lectura + avisos_del_tablero(tablero)
     avisos.append("Los puertos son una plantilla del marco: confírmalos o corrígelos.")
-    if not encontrado:
-        avisos.insert(0, "No se localizó el borde del tablero; la lectura puede fallar.")
-
-    dudosos = [d.id for d in detecciones if d.confianza_terreno < 0.55]
-    mensaje = (
-        "Revisa los terrenos marcados en amarillo y escribe los números. "
-        "La foto no lee las fichas numéricas todavía."
-    )
-    if dudosos:
-        mensaje = (
-            f"{len(dudosos)} hexágonos quedaron con baja confianza. "
-            "Revísalos y escribe los números antes de calcular."
-        )
 
     return RespuestaVision(
         tablero=Tablero(**tablero_a_api(tablero)),
         detecciones=detecciones,
         avisos=avisos,
-        mensaje=mensaje,
+        mensaje=_mensaje(detecciones, leyo_numeros=red is not None),
+    )
+
+
+def _leer_con_fichas(imagen: np.ndarray, hsv: np.ndarray, red: fichas.Red) -> list:
+    """Terrenos y números sobre la red ajustada con las fichas."""
+    coords = coordenadas_hexagonos()
+    centros = {c: red.centro(c) for c in coords}
+
+    # El desierto es el único hexágono sin ficha: el centro sin número (sin tinta).
+    presencia = {c: fichas.tinta_central(hsv, *centros[c], red.radio_ficha) for c in coords}
+    desierto = min(presencia, key=presencia.get)
+    resto = sorted(presencia[c] for c in coords if c != desierto)
+    # Confianza: qué tan claro es que ahí no hay ficha y en los demás sí.
+    separacion = (resto[0] - presencia[desierto]) / max(resto[0], 1e-6)
+    confianza_desierto = float(np.clip(separacion, 0, 1))
+
+    terrenos: dict[tuple[int, int], tuple[str, float]] = {}
+    for c in coords:
+        if c == desierto:
+            terrenos[c] = ("desierto", confianza_desierto)
+            continue
+        pixeles = fichas.pixeles_de_terreno(imagen, red, c).reshape(-1, 1, 3)
+        # Tiene ficha, así que no es el desierto aunque el color se le parezca.
+        terrenos[c] = _clasificar_terreno(pixeles, excluir={"desierto"})
+
+    puntuaciones, estabilidad = {}, {}
+    for c in coords:
+        if c == desierto:
+            continue
+        puntos, estable = fichas.leer_ficha(imagen, *centros[c], red.radio_ficha)
+        if puntos:
+            puntuaciones[c], estabilidad[c] = puntos, estable
+    numeros = fichas.leer_numeros(puntuaciones)
+
+    detecciones = []
+    for c in coords:
+        numero, margen = numeros.get(c, (None, 0.0))
+        # Una lectura que cambia al mover el recorte un píxel no es segura.
+        if estabilidad.get(c, 0.0) < fichas.ESTABILIDAD_MINIMA:
+            margen = min(margen, fichas.MARGEN_SEGURO * 0.9)
+        detecciones.append(HexagonoDetectado(
+            id=id_hexagono(c),
+            terreno=terrenos[c][0],
+            numero=numero,
+            confianza_terreno=round(terrenos[c][1], 2),
+            confianza_numero=round(fichas.confianza_de_margen(margen), 2) if numero else 0.0,
+        ))
+    return detecciones
+
+
+def _leer_por_borde(imagen: np.ndarray) -> list:
+    """Respaldo sin fichas: enderezar por el borde y clasificar parches (sin números)."""
+    rectificada, _ = _rectificar(imagen)
+    detecciones = []
+    for coord in coordenadas_hexagonos():
+        terreno, confianza = _clasificar_terreno(_parche_del_hexagono(rectificada, coord))
+        detecciones.append(HexagonoDetectado(
+            id=id_hexagono(coord), terreno=terreno, numero=None,
+            confianza_terreno=round(confianza, 2), confianza_numero=0.0,
+        ))
+    return detecciones
+
+
+def _mensaje(detecciones: list, leyo_numeros: bool) -> str:
+    terrenos = sum(1 for d in detecciones if d.confianza_terreno < CONFIANZA_DUDOSA)
+    if not leyo_numeros:
+        return (
+            f"{terrenos} terrenos quedaron con baja confianza y los números no se leyeron. "
+            "Revisa los terrenos y escribe los números antes de calcular."
+        )
+    numeros = sum(
+        1 for d in detecciones if d.terreno != "desierto" and d.confianza_numero < 0.5
+    )
+    if terrenos == 0 and numeros == 0:
+        return "Leí los 19 terrenos y los 18 números. Échales un vistazo y confirma."
+    return (
+        f"Leí terrenos y números. Revisa los marcados: {terrenos} terrenos y {numeros} "
+        "números quedaron dudosos."
     )
 
 
@@ -225,7 +298,7 @@ def _parche_del_hexagono(imagen: np.ndarray, coord: tuple[int, int]) -> np.ndarr
     return recorte[mascara]
 
 
-def _clasificar_terreno(parche: np.ndarray) -> tuple[str, float]:
+def _clasificar_terreno(parche: np.ndarray, excluir: set | None = None) -> tuple[str, float]:
     """
     Decide el terreno de un parche por su color.
 
@@ -242,6 +315,8 @@ def _clasificar_terreno(parche: np.ndarray) -> tuple[str, float]:
 
     puntajes = {}
     for terreno, rango in RANGOS.items():
+        if excluir and terreno in excluir:
+            continue
         dentro = (
             (h >= rango["h"][0]) & (h <= rango["h"][1])
             & (s >= rango["s"][0]) & (s <= rango["s"][1])

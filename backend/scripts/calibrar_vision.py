@@ -24,7 +24,7 @@ import cv2
 import numpy as np
 
 from app.domain.tablero import coordenadas_hexagonos
-from app.services import vision
+from app.services import vision, vision_fichas
 
 TERRENOS = list(vision.RANGOS)
 
@@ -34,10 +34,23 @@ PERCENTIL_BAJO, PERCENTIL_ALTO = 5, 95
 
 
 def _parches(imagen_bytes: bytes) -> tuple[dict, bool]:
-    """Los píxeles HSV de cada hexágono, recortados como lo hace la visión."""
+    """
+    Los píxeles HSV de cada hexágono, tomados como lo hace la visión: el anillo entre
+    la ficha y el borde de la pieza, sobre la red ajustada con las fichas. Si no se
+    encuentran fichas, el parche del método de respaldo (borde del tablero).
+    """
     imagen = vision._decodificar(imagen_bytes)
-    rectificada, encontrado = vision._rectificar(imagen)
+    hsv_imagen = cv2.cvtColor(imagen, cv2.COLOR_BGR2HSV)
+    seguras, radio = vision_fichas.detectar_fichas(imagen, hsv_imagen)
+    red = vision_fichas.ajustar_red(seguras, radio, hsv_imagen)
     salida = {}
+    if red is not None:
+        for coord in coordenadas_hexagonos():
+            pixeles = vision_fichas.pixeles_de_terreno(imagen, red, coord).astype(np.uint8)
+            hsv = cv2.cvtColor(pixeles.reshape(1, -1, 3), cv2.COLOR_BGR2HSV)
+            salida[coord] = hsv.reshape(-1, 3)
+        return salida, True
+    rectificada, encontrado = vision._rectificar(imagen)
     for coord in coordenadas_hexagonos():
         parche = vision._parche_del_hexagono(rectificada, coord)
         pixeles = parche.reshape(-1, 3).astype(np.uint8)
@@ -92,7 +105,7 @@ def main() -> None:
 
     parches, encontrado = _parches(args.foto.read_bytes())
     if not encontrado:
-        print("AVISO: no se localizó el borde del tablero; los recortes pueden estar mal.")
+        print("AVISO: no encontré las fichas ni el borde; los recortes pueden estar mal.")
 
     propuestos = proponer_rangos(parches, correctos)
     antes = _aciertos(parches, correctos, vision.RANGOS)

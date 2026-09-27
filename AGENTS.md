@@ -80,7 +80,7 @@ Un `npm start` que ya corría **no** relee `angular.json`: si cambia, reinícial
 | **Datos por simulación propia** | Aprobado explícitamente por el profesor. No existe API pública de partidas de Catan |
 | **La foto solo lee el tablero VACÍO** | Detectar poblados ajenos es mucho más difícil (piezas de 1 cm, ocluidas, en cuatro colores) y un fallo invalidaría la recomendación. Los poblados ajenos se marcan con clic, que además es más rápido para quien está sentado en la mesa |
 | **Sin login ni panel de administrador** | El profesor declaró el login opcional el 12 de septiembre. Para este producto no hay datos multiusuario que administrar |
-| **Puertos de un tablero de foto: plantilla editable** | La foto no lee puertos. Se parte del patrón del marco (`domain/puertos.py`: separaciones 3-3-4 sobre las 30 aristas de costa) y el usuario gira, mueve y cambia tipos al revisar. Es una aproximación: las posiciones reales se confirman contra el tablero físico |
+| **Puertos de un tablero de foto: plantilla editable** | La foto no lee puertos. La plantilla (`domain/puertos.py`) reproduce el tablero de principiantes, medido sobre `logs/ejemplo-tablero.png`: aristas de costa 2, 5, 9, 12, 15, 19, 22, 25 y 29. Madera, oveja y mineral están **por confirmar** (`POR_CONFIRMAR`). El usuario gira, mueve y cambia tipos al revisar |
 | **Render con Python nativo + uv, no Docker** | Sin Docker en la máquina de desarrollo, la imagen solo se probaría en Render, con un ciclo de commit y build por cada fallo. Render corre los mismos comandos `uv` que se usan en local |
 | **Chat con LLM y herramientas** | El profesor ve un chat que entiende preguntas libres. El LLM no recibe datos en el prompt: los pide a herramientas del backend, y un verificador rechaza cifras que no salgan de ellas. Sin clave, sin presupuesto o si algo falla, responde con plantillas |
 | **Las alternativas no incluyen la familia desequilibrada** | Su consejo es "cambia de pareja". Antes aparecía como opción 2 o 3 en 6 de 30 tableros. `SOLO_SI_ES_LA_MEJOR` en `recomendador.py` solo la deja entrar como opción 1. Diversificar cuesta en promedio 0.74 puntos estimados en la opción 2 y 1.84 en la 3, y la UI lo dice |
@@ -148,6 +148,25 @@ cambiar el pin en el mismo commit.
 Directory y sus comandos empiezan con `cd backend`. Con eso, `RAIZ` de `config.py`
 encuentra `modelos/colono.joblib` sin variables extra.
 
+
+### 5.12 La cuadrícula de la foto se ajusta con las fichas, no con el borde
+El método del borde suponía una separación entre filas que no era la real y
+muestreaba sobre bordes y mar: 10/19 terrenos. Las fichas numéricas marcan el centro
+exacto de cada hexágono; con unas pocas se ajusta la red y una homografía. Dos
+detalles que costaron: el vector base sale de una pareja al azar y hay que girarlo
+hasta que apunte a la derecha (si no, la lectura sale rotada), y el ajuste final va
+con RANSAC estricto (un solo falso positivo promediado movía los centros 12 px).
+
+### 5.13 En fichas pequeñas, una sola pista no basta para un número seguro
+Con umbral fijo el desenfoque rellena los agujeros del 6 y del 8 (se usa Otsu por
+ficha), y la compresión JPEG los vuelve a mover. Por eso: el 6 y el 8 llevan una
+segunda pista independiente (la abertura arriba a la derecha), cada ficha se relee
+con 7 recortes y solo es segura si la lectura no cambia, y la confianza se mide contra
+TODOS los números, no solo los que quedan en el reparto. Si no, una ficha asignada
+"por descarte" parecía una lectura segura.
+
+### 5.14 `cv2.imread` no abre rutas con acentos en Windows
+La ruta del proyecto tiene "Actuaría". Leer bytes y usar `cv2.imdecode`.
 ---
 
 ## 6. Arquitectura
@@ -225,8 +244,8 @@ encuentra `modelos/colono.joblib` sin variables extra.
 | Notebooks de EDA y modelado | listos |
 | Backend: API, esquemas, tests | listo y probado en local |
 | Dockerfile | desactualizado: no copia `modelos/` (el despliegue no lo usa) |
-| Visión: terreno por color | funciona, **sin calibrar con fotos reales**. En imagen sintética: 100 % sobre fondo negro, pero **26–42 % sobre fondos realistas** (madera, mantel, gris): la máscara de `_rectificar()` toma la mesa como tablero. Pendiente: segmentar por el marco azul. `scripts/calibrar_vision.py` calibra los colores |
-| Visión: lectura de números | pendiente: se escriben a mano en la revisión |
+| Visión: terreno por color | red ajustada con las fichas + anillo de color; el desierto es el hexágono sin tinta. Foto de referencia (539 px): **19/19**, también recomprimida en JPEG 70–95. Rangos de color **sin calibrar con fotos de celular** |
+| Visión: lectura de números | rojo + dígitos + agujeros + abertura del 6/8 + pips, promediados sobre 7 recortes, asignados respetando el reparto. Referencia: **18/18** (también en JPEG 70–95) y **0 errores con confianza alta**; 12–13 quedan marcados para revisión por la baja resolución. Sin probar con fotos de celular |
 | Visión: puertos | plantilla del marco, editable en la revisión |
 | Revisión del tablero | lista: corregir terreno y número por hexágono, contador contra el reparto, girar/mover/cambiar puertos, confirmar con `/tableros/validar` (que ahora también revisa el reparto de terrenos y de fichas) |
 | Foto | subir o tomar con la cámara del celular (`capture`); se reduce a 1600 px en el navegador y no se guarda en el backend |

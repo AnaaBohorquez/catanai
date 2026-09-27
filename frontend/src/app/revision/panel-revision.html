@@ -6,7 +6,13 @@
     </p>
     @if (dudosos()) {
       <p class="mt-1 text-sm text-amber-900">
-        ⚠️ {{ dudosos() }} hexágonos con lectura dudosa: tienen borde ámbar y «?».
+        ⚠️ {{ dudosos() }} terrenos con lectura dudosa: tienen borde ámbar y «?».
+      </p>
+    }
+    @if (numerosDudosos()) {
+      <p class="mt-1 text-sm text-amber-900">
+        ⚠️ {{ numerosDudosos() }} números por revisar: tienen un aro ámbar y «?».
+        Tócalos y confirma o corrige el número.
       </p>
     }
   </div>
@@ -79,9 +85,9 @@
       } @else {
         <p class="mt-3 text-sm text-stone-700">El desierto no lleva número.</p>
       }
-      @if (pendientes()) {
+      @if (pendientes() || numerosDudosos()) {
         <button type="button" class="mt-3 text-sm font-semibold text-accion hover:underline" (click)="siguiente.emit()">
-          Siguiente sin número →
+          Siguiente por revisar →
         </button>
       }
     </div>

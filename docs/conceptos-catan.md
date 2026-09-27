@@ -208,13 +208,20 @@ Tras el primer "Recomendar", cada cambio de marcas recalcula solo, y el asistent
 ## 12. De la foto al tablero
 
 1. **Tomar o subir la foto.** En el celular, «📷 Tomar foto» abre la cámara trasera. Antes de enviarla, el navegador la reduce a 1600 px y respeta su orientación. El backend la procesa en memoria y **no la guarda**.
-2. **Enderezar.** El tablero se ve en perspectiva. La visión busca su contorno, le ajusta un cuadrilátero y calcula una **homografía**: la transformación que convierte ese cuadrilátero en un cuadrado visto desde arriba. Con el tablero derecho ya se sabe dónde cae cada uno de los 19 hexágonos.
-3. **Clasificar por color.** De cada hexágono se toma un anillo (el centro lo tapa la ficha) y se cuenta qué proporción de píxeles cae en el rango de color de cada terreno. La **confianza** castiga los empates: si dos terrenos puntúan parecido, el hexágono se marca como dudoso (borde ámbar y «?»).
-4. **Revisar a mano.** La foto **no lee los números** ni los puertos. En la revisión se corrigen los terrenos dudosos, se escriben los 18 números (el contador dice cuáles faltan) y se confirma la plantilla de puertos.
-5. **Confirmar.** El backend reconstruye el tablero y avisa si no cuadra con el juego base: el reparto de terrenos (4-4-4-3-3-1), las 18 fichas, los 58 pips y los 9 puertos.
+2. **Encontrar la cuadrícula con las fichas.** Las fichas numéricas son discos crema y cada una marca el centro exacto de su hexágono. Con unas pocas fichas seguras (6 a 8 bastan) se ajusta la red hexagonal y una **homografía**: la transformación que lleva el tablero ideal visto desde arriba a la foto, con su perspectiva. Así se sabe dónde cae cada uno de los 19 hexágonos, sin importar el fondo.
+3. **Terrenos por color.** De cada hexágono se toma un anillo entre la ficha y el borde de la pieza y se cuenta qué proporción de píxeles cae en el rango de color de cada terreno. **El desierto es el único hexágono sin número**: se detecta por la ausencia de tinta en el centro, no por el color (la arena se parece a los campos).
+4. **Números por pistas, no por la forma de la letra.** Cada ficha se describe con:
+   - **rojo**: solo el 6 y el 8;
+   - **cantidad de dígitos**: dos en el 10, el 11 y el 12;
+   - **agujeros**: el 8 tiene dos; el 6, el 9 y el 10, uno;
+   - **abertura arriba a la derecha**: el 6 está abierto ahí y el 8 no (segunda pista para separarlos);
+   - **pips**: los puntitos bajo el número, que dicen la pareja (5 pips = 6 u 8).
 
-**Qué tan bien funciona, medido con honestidad:** con una imagen sintética de colores exactos acierta el 100 % de los terrenos sobre fondo negro, pero solo entre el 26 % y el 42 % sobre fondos parecidos a una mesa real. El problema no es el color: es que el paso 2 confunde la mesa con el tablero. Los colores, además, **no están calibrados** con fotos reales. Por eso la revisión manual es parte del flujo y no un extra.
+   Con eso se puntúa cada número posible y se asignan respetando el reparto (una ficha de 2, dos de 3…). Cada ficha se relee con varios recortes ligeramente distintos: si la lectura cambia, o si el mejor número gana por poco, **se marca para revisión** (aro ámbar y «?»).
+5. **Revisar a mano.** Se confirman o corrigen los terrenos y números dudosos y la plantilla de puertos (la foto no lee los puertos).
+6. **Confirmar.** El backend reconstruye el tablero y avisa si no cuadra con el juego base: el reparto de terrenos (4-4-4-3-3-1), las 18 fichas, los 58 pips y los 9 puertos.
 
+**Qué tan bien funciona, medido con honestidad:** con la foto de referencia del tablero de principiantes (539 px) lee **19/19 terrenos y 18/18 números**, también cuando se recomprime en JPEG, y **ningún número equivocado llega como seguro**. Pero es una foto limpia y pequeña: 12–13 números quedan marcados para revisión porque los pips miden unos 2 px. Con fotos de celular todavía no se ha probado, y los colores no están calibrados con ellas.
 ---
 
 ## Pendientes

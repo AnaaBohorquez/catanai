@@ -29,6 +29,7 @@ export class PanelRevisionComponent {
   /** Lo que dijo la visión ("revisa los marcados en amarillo…"), si vino de una foto. */
   readonly mensaje = input<string | null>(null);
   readonly dudosos = input(0);
+  readonly numerosDudosos = input(0);
   /** Avisos del backend al confirmar; null mientras no se ha intentado. */
   readonly avisos = input<string[] | null>(null);
   readonly confirmando = input(false);
