@@ -1,6 +1,6 @@
 import { Component, computed, input, output } from '@angular/core';
 
-import type { Opcion, Tablero } from '../api/tipos';
+import type { Destino, Opcion, Tablero } from '../api/tipos';
 import type { Marca, Marcas, ModoMarcado } from '../colocacion';
 import type { Arista } from '../revision/costa';
 import { COLOR_MEDALLA, COLOR_RECURSO, COLOR_TERRENO, type Recurso } from '../estilo-catan';
@@ -8,6 +8,7 @@ import {
   Punto,
   centroHex,
   centroVertice,
+  rutaEnPuntos,
   esquinasHex,
   leerCoordenada,
   posicionPuerto,
@@ -103,6 +104,8 @@ export class TableroComponent {
   readonly puertoSeleccionado = input<number | null>(null);
   /** Aristas de costa a las que se puede mover el puerto seleccionado. */
   readonly destinos = input<Arista[]>([]);
+  /** Colocación completa: dónde crecer (A, B, C) y la ruta de caminos hasta allí. */
+  readonly crecimiento = input<Destino[]>([]);
   readonly tocarHexagono = output<string>();
   readonly tocarPuerto = output<number>();
   readonly tocarArista = output<Arista>();
@@ -196,6 +199,15 @@ export class TableroComponent {
       arista,
       a: centroVertice(arista[0], TAM),
       b: centroVertice(arista[1], TAM),
+    })),
+  );
+
+  protected readonly caminosDeCrecimiento = computed(() =>
+    this.crecimiento().map((d) => ({
+      letra: d.letra,
+      ruta: rutaEnPuntos(d.ruta, TAM),
+      centro: centroVertice(d.vertice, TAM),
+      descripcion: d.descripcion,
     })),
   );
 

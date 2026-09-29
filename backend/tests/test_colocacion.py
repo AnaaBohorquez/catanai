@@ -114,7 +114,7 @@ def test_ver_estado_cuenta_rivales_y_libres(pantalla):
     vecinos = len(TOPOLOGIA.adyacentes[vertice_desde_id(rival)])
     assert salida["rivales_marcados"] == 1
     assert salida["vertices_libres_legales"] == 54 - 1 - vecinos
-    assert salida["tu_poblado"] == "aún no colocas"
+    assert salida["tus_poblados"] == "aún no colocas"
 
 
 def test_el_contexto_de_cada_pregunta_lleva_el_estado_sin_ids(pantalla):

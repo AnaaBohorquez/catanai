@@ -13,7 +13,8 @@ armado, la app calcula qué pareja de poblados conviene y explica por qué.
 Monorepo con `backend/` (FastAPI) y `frontend/` (Angular) al mismo nivel.
 
 - **Usuario final:** jugador casual o intermedio que quiere mejorar.
-- **Alcance:** Catan base, 3 o 4 jugadores, solo la fase de colocación inicial.
+- **Alcance:** Catan base, 3 o 4 jugadores, la fase de colocación inicial. Un paso
+  más: con los dos poblados puestos, sugerir hacia dónde crecer (el tercer poblado).
 - **Contexto:** trabajo final del Módulo 5. Demos el 1 y 3 de octubre de 2026.
 
 **Flujo del usuario (sin login):** ① foto del tablero vacío → ② revisar y corregir
@@ -83,6 +84,7 @@ Un `npm start` que ya corría **no** relee `angular.json`: si cambia, reinícial
 | **Puertos de un tablero de foto: plantilla editable** | La foto no lee puertos. La plantilla (`domain/puertos.py`) reproduce el tablero de principiantes, medido sobre `logs/ejemplo-tablero.png`: aristas de costa 2, 5, 9, 12, 15, 19, 22, 25 y 29. Madera, oveja y mineral están **por confirmar** (`POR_CONFIRMAR`). El usuario gira, mueve y cambia tipos al revisar |
 | **Render con Python nativo + uv, no Docker** | Sin Docker en la máquina de desarrollo, la imagen solo se probaría en Render, con un ciclo de commit y build por cada fallo. Render corre los mismos comandos `uv` que se usan en local |
 | **Chat con LLM y herramientas** | El profesor ve un chat que entiende preguntas libres. El LLM no recibe datos en el prompt: los pide a herramientas del backend, y un verificador rechaza cifras que no salgan de ellas. Sin clave, sin presupuesto o si algo falla, responde con plantillas |
+| **Tercer poblado por fórmula a la vista, no por la regresión** | El modelo se entrenó para elegir la pareja inicial. `domain/expansion.py` puntúa pips + 0.5 × pips de recursos nuevos + puerto − caminos extra − rival cerca, con pesos a criterio. Sin marcar caminos: la distancia se cuenta desde los poblados y un camino no cruza un poblado rival |
 | **Las alternativas no incluyen la familia desequilibrada** | Su consejo es "cambia de pareja". Antes aparecía como opción 2 o 3 en 6 de 30 tableros. `SOLO_SI_ES_LA_MEJOR` en `recomendador.py` solo la deja entrar como opción 1. Diversificar cuesta en promedio 0.74 puntos estimados en la opción 2 y 1.84 en la 3, y la UI lo dice |
 
 **Descartado y no reintroducir:** reinforcement learning, simulación de partidas
@@ -201,6 +203,13 @@ La asignación con reparto (`asignar_con_reparto`, algoritmo húngaro) mide la
 seguridad de cada ficha como cuánto empeora el total si se le prohíbe su etiqueta.
 Pero si la ficha misma se leía como otra cosa (un 6 que recibe el 8 "sobrante"), esa
 seguridad engaña: se fuerza a 0 y queda para revisión.
+
+### 5.20 Con los dos poblados puestos, el chat creía estar en la primera colocación
+`mio` solo se llena con exactamente un poblado propio, así que con dos el frontend no
+mandaba ninguno: el estado decía "primera colocación" y las herramientas pedían una
+recomendación que ya no se podía pedir. Ahora `PeticionChat.propios` lleva todos, el
+estado dice "colocación inicial completa" y las herramientas de opciones redirigen a
+`hacia_donde_expandir`.
 ---
 
 ## 6. Arquitectura
@@ -291,8 +300,8 @@ seguridad engaña: se fuerza a 0 y queda para revisión.
 | Foto | subir o tomar con la cámara del celular (`capture`); se reduce a 1600 px en el navegador y no se guarda en el backend |
 | Chat: plantillas y LLM | LLM con herramientas, verificador, límites y registro; probado en vivo con `gpt-5-mini` (≈ US$0.001 por pregunta, 7 s). Clave rechazada detectada y avisada (§5.15). Plantillas normalizadas con intención de estrategia. Falta correr `scripts/evaluar_chat.py` con las 5 preguntas de estrategia |
 | Reglas verificadas | borrador de 17 entradas en `domain/reglas.md`, **ninguna verificada**: hasta entonces el chat no cita reglas. `test_la_regla_de_costos_coincide_con_la_tabla_del_codigo` mantiene la de costos igual a `COSTOS` |
-| Marcar la colocación | modo + toque (Mi poblado, Rival, Borrar); regla de distancia en el cliente; recálculo automático; segunda colocación con `mio`. Los caminos no cuentan todavía |
-| Herramientas del asistente | 12: 5 sobre las opciones, el tablero marcado y las reglas; 6 de experto (costos, mano, conseguir un recurso, plan de construcción, probabilidades, tablero) y `explicar_estrategia` (ficha de la familia, perfil frente al centro de su grupo en KMeans, plan ordenado por la prioridad de la familia). Todas calculadas desde el dominio o el modelo |
+| Marcar la colocación | modo + toque (Mi poblado, Rival, Borrar); regla de distancia en el cliente; recálculo automático; segunda colocación con `mio`; con los dos, «🧭 ¿Hacia dónde crezco?» (`/expansion` y `hacia_donde_expandir`) marca los destinos A, B y C con su ruta en el tablero. Los caminos no se marcan |
+| Herramientas del asistente | 13 (con `hacia_donde_expandir`); antes 12: 5 sobre las opciones, el tablero marcado y las reglas; 6 de experto (costos, mano, conseguir un recurso, plan de construcción, probabilidades, tablero) y `explicar_estrategia` (ficha de la familia, perfil frente al centro de su grupo en KMeans, plan ordenado por la prioridad de la familia). Todas calculadas desde el dominio o el modelo |
 | Plantilla "22 % más de puntos" | cifra retirada del chat hasta verificarla contra `parejas.csv` (`make dataset`) |
 | Frontend Angular | diseño "tablero + asistente": tablero fijo con la opción resaltada; panel con franja de opciones, tarjetas dentro del chat y campo fijo en móvil. Un solo estado de selección en `App`. Botón «¿Cómo juego esta estrategia?» en cada tarjeta y «Nueva partida» (nueva colocación en el mismo tablero o empezar de cero) |
 | Despliegue | configuración lista (`docs/despliegue.md`); falta crear los servicios |

@@ -162,6 +162,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/expansion": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sugiere dónde poner el siguiente poblado
+         * @description Con tus poblados colocados, los mejores vértices para el siguiente (A, B y C),
+         *     a los que puedes llegar con caminos sin cruzar poblados rivales.
+         *
+         *     El puntaje es una fórmula a la vista (pips, recursos nuevos, puerto, caminos,
+         *     rivales cerca), no el modelo de regresión, que se entrenó para la colocación
+         *     inicial.
+         */
+        post: operations["expansion_api_v1_expansion_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -175,6 +200,51 @@ export interface components {
         Body_leer_tablero_api_v1_vision_tablero_post: {
             /** Foto */
             foto: string;
+        };
+        /**
+         * Destino
+         * @description Un vértice para el siguiente poblado y por qué conviene.
+         */
+        Destino: {
+            /**
+             * Letra
+             * @description A, B o C, como se marca en el tablero
+             */
+            letra: string;
+            /** Vertice */
+            vertice: string;
+            /** Descripcion */
+            descripcion: string;
+            /**
+             * Desde
+             * @description El poblado propio del que sale la ruta
+             */
+            desde: string;
+            /**
+             * Caminos
+             * @description Caminos que hay que construir para llegar
+             */
+            caminos: number;
+            /**
+             * Ruta
+             * @description Vértices del camino, del poblado propio al destino
+             */
+            ruta: string[];
+            /** Pips */
+            pips: number;
+            /** Recursos Nuevos */
+            recursos_nuevos: string[];
+            /** Puerto */
+            puerto?: string | null;
+            /** Riesgo Rival */
+            riesgo_rival: boolean;
+            /**
+             * Puntaje
+             * @description Fórmula a la vista, no el modelo de regresión
+             */
+            puntaje: number;
+            /** Razones */
+            razones: string[];
         };
         /**
          * EstadoColocacion
@@ -337,10 +407,36 @@ export interface components {
              */
             mio?: string | null;
             /**
+             * Propios
+             * @description Todos los poblados del usuario (con dos, la colocación está completa)
+             * @default []
+             */
+            propios: string[];
+            /**
              * Jugadores
              * @default 4
              */
             jugadores: number;
+        };
+        /** PeticionExpansion */
+        PeticionExpansion: {
+            tablero: components["schemas"]["Tablero"];
+            /**
+             * Propios
+             * @description Poblados del usuario
+             */
+            propios: string[];
+            /**
+             * Ocupados
+             * @description Poblados de rivales
+             * @default []
+             */
+            ocupados: string[];
+            /**
+             * Max Caminos
+             * @default 3
+             */
+            max_caminos: number;
         };
         /** PeticionRecomendar */
         PeticionRecomendar: {
@@ -396,10 +492,20 @@ export interface components {
             /** @description Si el asistente recalculó con una hipótesis ('¿y si un rival toma…?'), las marcas que la interfaz debe aplicar para que tablero y opciones coincidan */
             estado_nuevo?: components["schemas"]["EstadoColocacion"] | null;
             /**
+             * Destinos
+             * @description Destinos para el siguiente poblado, si el asistente los calculó
+             */
+            destinos?: components["schemas"]["Destino"][] | null;
+            /**
              * Opciones Nuevas
              * @description Si el asistente pidió otra recomendación, las que calculó el modelo
              */
             opciones_nuevas?: components["schemas"]["Opcion"][] | null;
+        };
+        /** RespuestaExpansion */
+        RespuestaExpansion: {
+            /** Destinos */
+            destinos: components["schemas"]["Destino"][];
         };
         /** RespuestaRecomendar */
         RespuestaRecomendar: {
@@ -713,6 +819,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RespuestaChat"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    expansion_api_v1_expansion_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PeticionExpansion"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RespuestaExpansion"];
                 };
             };
             /** @description Validation Error */

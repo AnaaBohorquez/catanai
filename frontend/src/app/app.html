@@ -146,6 +146,7 @@
               [bloqueados]="bloqueados()"
               (elegir)="seleccionada.set($event)"
               (tocarVertice)="tocarVertice($event)"
+              [crecimiento]="crecimiento()"
               [revision]="revisando()"
               [dudosos]="dudosos()"
               [numerosDudosos]="numerosDudosos()"
@@ -199,6 +200,7 @@
       [jugadores]="jugadores()"
       [ocupados]="ocupados()"
       [mio]="mio()"
+      [propios]="propios()"
       [completo]="completo()"
       [actualizacion]="actualizacion()"
       [habilitado]="!!tablero() && conectado() && !completo() && !revisando()"
@@ -210,6 +212,7 @@
       (seleccionar)="seleccionada.set($event)"
       (estadoNuevo)="aplicarEstado($event)"
       (opcionesNuevas)="aplicarOpcionesNuevas($event)"
+      (destinosNuevos)="mostrarCrecimiento($event)"
     />
     </div>
   </main>

@@ -18,6 +18,7 @@ export type PeticionRecomendar = Esquemas['PeticionRecomendar'];
 export type RespuestaRecomendar = Esquemas['RespuestaRecomendar'];
 export type PeticionChat = Esquemas['PeticionChat'];
 export type RespuestaChat = Esquemas['RespuestaChat'];
+export type Destino = Esquemas['Destino'];
 export type MensajeChat = Esquemas['Mensaje'];
 export type EstadoColocacion = Esquemas['EstadoColocacion'];
 export type RespuestaVision = Esquemas['RespuestaVision'];

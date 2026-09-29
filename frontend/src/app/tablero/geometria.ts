@@ -111,3 +111,14 @@ export function bloqueados(marcados: string[], todos: string[]): Set<string> {
   }
   return salida;
 }
+
+/**
+ * Los puntos de una ruta de caminos (lista de vértices) para un `<polyline>` de SVG:
+ * "x1,y1 x2,y2 …".
+ */
+export function rutaEnPuntos(ruta: string[], tam: number): string {
+  return ruta
+    .map((id) => centroVertice(id, tam))
+    .map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`)
+    .join(' ');
+}

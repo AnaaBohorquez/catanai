@@ -21,8 +21,15 @@ from app.domain.reglas import buscar_reglas, reglas_verificadas
 from app.domain.simulador import TOPOLOGIA
 from app.domain.tablero import COSTOS, PIPS, RECURSOS
 from app.domain.variables import _tasa_de_cambio, pips_por_recurso_del_tablero
-from app.schemas.api import EstadoColocacion, Opcion, PeticionChat, PeticionRecomendar
-from app.services import modelo
+from app.schemas.api import (
+    Destino,
+    EstadoColocacion,
+    Opcion,
+    PeticionChat,
+    PeticionExpansion,
+    PeticionRecomendar,
+)
+from app.services import expansion, modelo
 from app.services.recomendacion import ModeloNoDisponible, calcular
 from app.services.recomendador import ESTRATEGIAS, describir_vertice, perfil_de_familia
 from app.services.serializers import id_vertice, tablero_desde_api, vertice_desde_id
@@ -278,7 +285,23 @@ DEFINICIONES_EXPERTO = [
     },
 ]
 
-DEFINICIONES = DEFINICIONES + DEFINICIONES_EXPERTO
+DEFINICIONES = DEFINICIONES + DEFINICIONES_EXPERTO + [
+    {
+        "type": "function",
+        "name": "hacia_donde_expandir",
+        "description": (
+            "Con la colocación inicial completa (o con tu primer poblado puesto): los "
+            "mejores vértices para tu siguiente poblado (A, B y C), cuántos caminos "
+            "hacen falta, qué recursos nuevos dan, puerto y si un rival está cerca. "
+            "Úsala para '¿hacia dónde crezco?', '¿hacia dónde tiendo mis caminos?', "
+            "'¿dónde va mi tercer poblado?', '¿cómo sigo mi estrategia?'."
+        ),
+        "strict": True,
+        "parameters": {
+            "type": "object", "properties": {}, "required": [], "additionalProperties": False
+        },
+    },
+]
 
 #: Qué mide cada capacidad del agrupamiento, en palabras de jugador.
 SIGNIFICADO_CAPACIDAD = {
@@ -323,6 +346,8 @@ class Herramientas:
     #: Todas las salidas, para que el verificador compruebe las cifras.
     salidas: list[str] = field(default_factory=list)
     opciones_nuevas: list[Opcion] | None = None
+    #: Destinos para el siguiente poblado, si se calcularon: el tablero los dibuja.
+    destinos: list[Destino] | None = None
     #: Las marcas con las que se calcularon las opciones nuevas.
     estado_nuevo: EstadoColocacion | None = None
 
@@ -358,7 +383,7 @@ class Herramientas:
     def _ver_resultados_actuales(self) -> dict:
         opciones = self.peticion.opciones
         if not opciones:
-            return {"opciones": [], "nota": "Aún no hay una recomendación en pantalla."}
+            return {"opciones": [], **self._sin_opciones()}
         self.fuentes.add("modelo")
         return {
             "nota": "puntos_estimados son una estimación del simulador; importa más el orden.",
@@ -443,13 +468,18 @@ class Herramientas:
             return {"error": "No hay tablero cargado."}
         self.fuentes.add("modelo")
         ocupados, propio = self.peticion.ocupados, self.peticion.mio
+        propios = self._propios()
         libres = [
             v for v in TOPOLOGIA.vertices
-            if not self._bloqueado(id_vertice(v), ocupados, propio)
+            if not any(self._bloqueado(id_vertice(v), ocupados, p) for p in propios or [None])
         ]
+        if len(propios) >= 2:
+            momento = "colocación completa: ya pusiste tus dos poblados"
+        else:
+            momento = "segunda colocación" if propio else "primera colocación"
         return {
-            "momento": "segunda colocación" if propio else "primera colocación",
-            "tu_poblado": self._describir(propio) if propio else "aún no colocas",
+            "momento": momento,
+            "tus_poblados": [self._describir(p) for p in propios] or "aún no colocas",
             "rivales_marcados": len(ocupados),
             "poblados_rivales": [self._describir(v) for v in ocupados],
             "vertices_libres_legales": len(libres),
@@ -506,7 +536,7 @@ class Herramientas:
             return {"error": f"Recurso desconocido: {recurso}"}
         opcion = self._opcion_seleccionada()
         if opcion is None:
-            return {"error": "Primero hace falta una recomendación en pantalla."}
+            return self._sin_opciones()
         self.fuentes.add("modelo")
         puertos = self._puertos_seleccionada()
         ritmo = self._cartas_por_ronda(opcion)
@@ -544,7 +574,7 @@ class Herramientas:
     def _plan_de_construccion(self) -> dict:
         opcion = self._opcion_seleccionada()
         if opcion is None:
-            return {"error": "Primero hace falta una recomendación en pantalla."}
+            return self._sin_opciones()
         self.fuentes.add("modelo")
         v = opcion.variables
         return {
@@ -609,7 +639,7 @@ class Herramientas:
             return {"error": f"Familia desconocida: {familia}. Son: {', '.join(ESTRATEGIAS)}."}
         if familia is None:
             if not opciones:
-                return {"error": "Primero hace falta una recomendación en pantalla."}
+                return self._sin_opciones()
             familia = self._opcion_seleccionada().estrategia
 
         # La opción que representa a la familia: la seleccionada si es de ella; si no,
@@ -648,7 +678,54 @@ class Herramientas:
         ]
         return salida
 
+    def _hacia_donde_expandir(self) -> dict:
+        if self.peticion.tablero is None:
+            return {"error": "No hay tablero cargado."}
+        propios = self._propios()
+        if not propios:
+            return {"error": "Primero marca tus poblados en el tablero (Mi poblado)."}
+        try:
+            respuesta = expansion.calcular(
+                PeticionExpansion(
+                    tablero=self.peticion.tablero,
+                    propios=propios,
+                    ocupados=self.peticion.ocupados,
+                )
+            )
+        except ErrorDeDominio as error:
+            return {"error": error.mensaje}
+        self.fuentes.add("modelo")
+        self.destinos = respuesta.destinos
+        if not respuesta.destinos:
+            return {"destinos": [], "nota": "No hay vértices libres a 2 o 3 caminos."}
+        return {
+            "nota": (
+                "Puntaje = pips + 0.5 × pips de recursos que no produces + puerto (3 si es "
+                "2:1 de tu recurso dominante, 1 si es 3:1) − 2 por camino extra − 2 si hay "
+                "un rival cerca. Es una fórmula del tablero, no el modelo. Los destinos ya "
+                "se marcan en el tablero con su letra y su ruta."
+            ),
+            "destinos": [
+                d.model_dump(exclude={"vertice", "ruta"}) for d in respuesta.destinos
+            ],
+        }
+
     # --- Apoyo -------------------------------------------------------------
+
+    def _propios(self) -> list[str]:
+        """Los poblados del usuario: todos los marcados, o al menos el primero."""
+        if self.peticion.propios:
+            return list(self.peticion.propios)
+        return [self.peticion.mio] if self.peticion.mio else []
+
+    def _sin_opciones(self) -> dict:
+        """Qué decir cuando no hay opciones en pantalla, según el momento."""
+        if len(self._propios()) >= 2:
+            return {
+                "error": "La colocación inicial ya está completa. Para seguir la "
+                         "estrategia usa hacia_donde_expandir.",
+            }
+        return {"error": "Primero hace falta una recomendación en pantalla."}
 
     @staticmethod
     def _comparar_con_familia(opcion: Opcion, familia: str) -> list[dict] | str:

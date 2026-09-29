@@ -196,4 +196,25 @@
             stroke="#b5532b" [attr.stroke-width]="tam * 0.1" stroke-dasharray="6 4" stroke-linecap="round" />
     </g>
   }
+  <!-- Hacia dónde crecer: encima de todo y sin capturar toques, para que las
+       letras se vean también en modo de marcado. -->
+  @for (c of caminosDeCrecimiento(); track c.letra; let primero = $first) {
+    <g pointer-events="none" [attr.aria-label]="'Destino ' + c.letra + ': ' + c.descripcion">
+      <polyline
+        [attr.points]="c.ruta" fill="none"
+        [attr.stroke]="primero ? '#b5532b' : '#3b2412'" [attr.opacity]="primero ? 1 : 0.6"
+        [attr.stroke-width]="tam * 0.1" stroke-dasharray="8 6"
+        stroke-linecap="round" stroke-linejoin="round"
+      />
+      <circle
+        [attr.cx]="c.centro.x" [attr.cy]="c.centro.y" [attr.r]="tam * 0.26"
+        [attr.fill]="primero ? '#b5532b' : '#fbf5e6'" stroke="#3b2412" [attr.stroke-width]="tam * 0.04"
+      />
+      <text
+        [attr.x]="c.centro.x" [attr.y]="c.centro.y" text-anchor="middle" dominant-baseline="central"
+        [attr.font-size]="tam * 0.28" font-weight="700" [attr.fill]="primero ? '#ffffff' : '#3b2412'"
+      >{{ c.letra }}</text>
+    </g>
+  }
+
 </svg>

@@ -6,6 +6,7 @@ import { ColonoApi } from './api/colono-api';
 import type {
   EstadoColocacion,
   Hexagono,
+  Destino,
   Opcion,
   RespuestaRecomendar,
   Salud,
@@ -100,6 +101,8 @@ export class App implements OnInit {
   protected readonly marcas = signal<Marcas>({});
   protected readonly modo = signal<ModoMarcado>(null);
   protected readonly aviso = signal<string | null>(null);
+  /** Hacia dónde crecer, si el asistente lo calculó: se dibuja en el tablero. */
+  protected readonly crecimiento = signal<Destino[]>([]);
 
   protected readonly propios = computed(() => propios(this.marcas()));
   protected readonly ocupados = computed(() => rivales(this.marcas()));
@@ -474,6 +477,7 @@ export class App implements OnInit {
     this.marcas.set({});
     this.modo.set(null);
     this.aviso.set(null);
+    this.crecimiento.set([]);
     this.recomendacionActiva = false;
     this.firmaRespuesta = null;
     this.errorRecomendar.set(null);
@@ -493,6 +497,8 @@ export class App implements OnInit {
     const modo = this.modo();
     const actual = this.marcas()[id];
     if (modo === null) return;
+    // Los destinos se calcularon con las marcas anteriores: ya no valen.
+    this.crecimiento.set([]);
 
     if (modo === 'borrar' || actual === modo) {
       if (actual) this.marcas.update(({ [id]: _, ...resto }) => resto);
@@ -509,7 +515,14 @@ export class App implements OnInit {
     this.marcas.update((m) => ({ ...m, [id]: modo }));
   }
 
+  /** El asistente calculó hacia dónde crecer: se dibuja y se sale del modo de marcado. */
+  protected mostrarCrecimiento(destinos: Destino[]): void {
+    this.crecimiento.set(destinos);
+    this.modo.set(null);
+  }
+
   protected limpiarMarcas(): void {
+    this.crecimiento.set([]);
     this.marcas.set({});
   }
 

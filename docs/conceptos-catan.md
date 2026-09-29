@@ -233,6 +233,27 @@ Tras el primer "Recomendar", cada cambio de marcas recalcula solo, y el asistent
 **Qué tan bien funciona, medido con honestidad:** con la foto de referencia del tablero de principiantes (539 px) lee **19/19 terrenos y 18/18 números**, también girada 90°, 180°, 25° o −40° y recomprimida en JPEG, y **ningún número equivocado llega como seguro**. Unos 10 números quedan para revisión: en esa foto los pips miden 2 px, y el 2, el 3, el 4 y el 5 solo se distinguen por ellos. Con una segunda foto (fichas de 12 px de radio) lee 19/19 terrenos, pero solo 7–11 números, y además no es un tablero base (el desierto tiene un 10 y hay tres 9). Con fotos de celular, que tienen unas tres veces más resolución, todavía no se ha probado.
 ---
 
+## 13. Hacia dónde crecer (el tercer poblado)
+
+Con tus dos poblados puestos, la app sugiere dónde construir el siguiente. Pulsa «🧭 ¿Hacia dónde crezco?» y el tablero marca tres destinos (**A**, **B** y **C**) con la ruta de caminos para llegar.
+
+**Qué destinos entran.** Se recorre el tablero arista por arista desde tus poblados, como si tendieras caminos:
+- **un camino no puede cruzar un poblado rival** (regla de Catan);
+- el destino debe estar **libre y sin ningún poblado a una arista** (regla de distancia), así que siempre hacen falta **al menos 2 caminos**;
+- se buscan destinos a 2 o 3 caminos.
+
+**Cómo se puntúa.** Es una fórmula a la vista, no el modelo:
+
+> puntaje = pips del vértice + 0.5 × pips de los recursos que hoy no produces + 3 si tiene puerto 2:1 de tu recurso dominante (1 si es 3:1) − 2 por cada camino más allá de 2 − 2 si hay un rival a 2 aristas o menos
+
+Ejemplo: un vértice de 10 pips que te da mineral (4 pips de mineral, que no producías), a 2 caminos y sin rivales cerca: 10 + 0.5 × 4 = **12**.
+
+**Por qué no la regresión.** El modelo se entrenó para elegir la **pareja inicial**: sus variables describen dos poblados puestos a la vez al inicio. Usarlo para el tercero sería aplicarlo fuera de lo que aprendió. Los pesos de la fórmula son a criterio (no salen de datos) y así se dice.
+
+**Límite:** los caminos no se marcan en el tablero. La distancia se cuenta desde tus poblados, como si todavía no hubieras decidido hacia dónde van tus caminos.
+
+---
+
 ## Pendientes
 
 - [ ] Implementar `produccion_efectiva` con las tasas de cambio 4:1, 3:1 y 2:1

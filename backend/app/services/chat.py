@@ -42,6 +42,12 @@ Cómo trabajas:
   - Si el usuario dice qué cartas tiene: que_me_falta, siempre.
   - Cómo obtener un recurso con su opción: como_conseguir.
   - Cuántas rondas para construir algo con su opción: plan_de_construccion.
+  - Con la colocación completa (dos poblados propios), "¿hacia dónde crezco?",
+    "¿hacia dónde tiendo mis caminos?", "¿dónde va mi tercer poblado?" o "¿cómo sigo
+    mi estrategia?": hacia_donde_expandir. Presenta cada destino con un título
+    `### Destino A · …` y 2 o 3 viñetas con sus razones, tal como las da la
+    herramienta; sin plan ni Haz/Evita por destino. Al final, una sola línea `Haz:`
+    y una `Evita:` para todos. Si los puntajes empatan, dilo.
   - Estrategia, plan de juego, qué hacer después, cómo ganar con una opción o "¿y si
     juego Ciudades?": explicar_estrategia (null = la opción seleccionada).
   - Probabilidad de un número: probabilidad_de_numero.
@@ -160,17 +166,20 @@ def responder(peticion: PeticionChat, ip: str = "desconocida") -> RespuestaChat:
                 fuentes=_fuentes(texto, herramientas),
                 opciones_nuevas=herramientas.opciones_nuevas,
                 estado_nuevo=herramientas.estado_nuevo,
+                destinos=herramientas.destinos,
             )
         motivo = uso["motivo"] or "sin_texto"
 
     consumo.anotar(
         {**evento, "resultado": "plantillas", "motivo": motivo, "latencia_ms": _ms(inicio)}
     )
+    basicas = Herramientas(peticion)
     return RespuestaChat(
-        texto=_con_plantillas(peticion),
+        texto=_con_plantillas(peticion, basicas),
         fuente="plantillas",
         # Las plantillas solo reordenan lo que calculó el modelo.
-        fuentes=["modelo"] if peticion.opciones else [],
+        fuentes=["modelo"] if peticion.opciones or basicas.destinos else [],
+        destinos=basicas.destinos,
     )
 
 
@@ -288,14 +297,25 @@ def estado_en_texto(peticion: PeticionChat) -> str:
     El estado de la colocación en una línea, sin ids, para el principio de cada
     pregunta: así el modelo no depende de acordarse de consultar el tablero.
     """
-    partes = ["segunda colocación" if peticion.mio else "primera colocación"]
-    if peticion.mio and peticion.tablero is not None:
-        dominio = tablero_desde_api(peticion.tablero.model_dump())
-        propio = describir_vertice(vertice_desde_id(peticion.mio), dominio)
-        partes.append(f"tu primer poblado: {propio}")
+    dominio = tablero_desde_api(peticion.tablero.model_dump()) if peticion.tablero else None
+    completa = len(peticion.propios) >= 2
+    if completa:
+        partes = ["colocación inicial completa"]
+        if dominio is not None:
+            descritos = [
+                describir_vertice(vertice_desde_id(v), dominio) for v in peticion.propios
+            ]
+            partes.append("tus poblados: " + " y ".join(descritos))
+    else:
+        partes = ["segunda colocación" if peticion.mio else "primera colocación"]
+        if peticion.mio and dominio is not None:
+            propio = describir_vertice(vertice_desde_id(peticion.mio), dominio)
+            partes.append(f"tu primer poblado: {propio}")
     partes.append(f"{len(peticion.ocupados)} poblados rivales marcados")
     if peticion.opciones:
         partes.append(f"seleccionada la opción {_indice_elegido(peticion) + 1}")
+    elif completa:
+        partes.append("para seguir la estrategia: hacia_donde_expandir")
     else:
         partes.append("aún no hay recomendación en pantalla")
     return "[Estado: " + "; ".join(partes) + ".]"
@@ -353,6 +373,8 @@ _POR_QUE = ("por que", "porque", "razon", "explica", "justifica")
 _ESTRATEGIA = ("estrategia", "plan", "como juego", "como jugar", "como gano", "ganar",
                "que hago", "que hacer", "despues", "siguiente", "construyo", "construir",
                "primero", "empiezo", "empezar", "prioridad", "enfoque", "consejo")
+_EXPANSION = ("hacia donde", "crezco", "crecer", "expandir", "expando", "tercer poblado",
+              "siguiente poblado", "mis caminos", "tiendo", "seguir", "sigo")
 _ALTERNATIVAS = ("otra", "alternativa", "opciones", "otras vias")
 _PIPS = ("pips", "puntitos")
 _REGLAS = ("regla", "ladron", "siete", " 7 ", "descart", "se puede", "puedo",
@@ -400,7 +422,7 @@ def _nombrada(pregunta: str, catalogo: dict[str, tuple[str, ...]]) -> str | None
     return next((clave for clave, ps in catalogo.items() if _dice(pregunta, ps)), None)
 
 
-def _con_plantillas(peticion: PeticionChat) -> str:
+def _con_plantillas(peticion: PeticionChat, herramientas: Herramientas | None = None) -> str:
     """
     Respuesta sin modelo de lenguaje, a partir de lo ya calculado.
 
@@ -410,8 +432,9 @@ def _con_plantillas(peticion: PeticionChat) -> str:
     hago si me quitan…?" es de rivales, no de estrategia).
     """
     pregunta = normalizar(peticion.pregunta)
-    herramientas = Herramientas(peticion)
+    herramientas = herramientas or Herramientas(peticion)
     opciones = peticion.opciones
+    completa = len(peticion.propios) >= 2
 
     # Costos y probabilidades no dependen de la recomendación.
     if _dice(pregunta, _COSTO):
@@ -422,7 +445,19 @@ def _con_plantillas(peticion: PeticionChat) -> str:
         if numero is not None:
             return _texto_probabilidad(herramientas, numero)
 
+    # Con la colocación completa, "estrategia" ya no es qué pareja elegir sino hacia
+    # dónde crecer.
+    if (completa and (_dice(pregunta, _ESTRATEGIA) or _dice(pregunta, _EXPANSION))) or (
+        peticion.propios and _dice(pregunta, _EXPANSION)
+    ):
+        return _texto_expansion(herramientas)
+
     if not opciones:
+        if completa:
+            return (
+                "Ya colocaste tus dos poblados. Pregúntame «¿Hacia dónde crezco?» y te "
+                "marco en el tablero los mejores sitios para tu siguiente poblado."
+            )
         if _dice(pregunta, _REGLAS):
             return _texto_reglas(peticion.pregunta)
         return (
@@ -523,6 +558,32 @@ def _mini_tarjeta(indice: int, opcion, detalle: bool = True) -> list[str]:
     if detalle:
         lineas += [f"Haz: {exp.haz}", f"Evita: {exp.evita}"]
     return lineas
+
+
+def _texto_expansion(herramientas: Herramientas) -> str:
+    """Los destinos de ``hacia_donde_expandir`` con el formato de las tarjetas."""
+    datos = herramientas._hacia_donde_expandir()
+    if "error" in datos:
+        return datos["error"]
+    if not datos["destinos"]:
+        return datos["nota"]
+    lineas = [
+        "Estos son los mejores sitios para tu siguiente poblado; ya los marqué en el "
+        "tablero con su letra y la ruta de caminos."
+    ]
+    for d in datos["destinos"]:
+        lineas += [
+            "",
+            f"### Destino {d['letra']} · {d['descripcion']}",
+            f"Sal desde tu poblado de {d['desde']}.",
+            *[f"- {_mayuscula(r)}" for r in d["razones"]],
+        ]
+    lineas += [
+        "",
+        "Haz: tiende los caminos hacia el destino A cuanto antes.",
+        "Evita: dejarlo para después si hay un rival cerca.",
+    ]
+    return "\n".join(lineas)
 
 
 def _texto_estrategia(herramientas: Herramientas, familia: str | None) -> str:

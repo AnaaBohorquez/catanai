@@ -156,7 +156,39 @@ class PeticionChat(BaseModel):
     # lo recibe siempre para no recomendar sobre un tablero que ya no es el real.
     ocupados: list[str] = Field(default=[], description="Vértices marcados como de rivales")
     mio: str | None = Field(default=None, description="Primer poblado del usuario, si lo marcó")
+    propios: list[str] = Field(
+        default=[],
+        description="Todos los poblados del usuario (con dos, la colocación está completa)",
+    )
     jugadores: int = Field(default=4, ge=3, le=4)
+
+
+class PeticionExpansion(BaseModel):
+    tablero: Tablero
+    propios: list[str] = Field(min_length=1, description="Poblados del usuario")
+    ocupados: list[str] = Field(default=[], description="Poblados de rivales")
+    max_caminos: int = Field(default=3, ge=2, le=5)
+
+
+class Destino(BaseModel):
+    """Un vértice para el siguiente poblado y por qué conviene."""
+
+    letra: str = Field(description="A, B o C, como se marca en el tablero")
+    vertice: str
+    descripcion: str
+    desde: str = Field(description="El poblado propio del que sale la ruta")
+    caminos: int = Field(description="Caminos que hay que construir para llegar")
+    ruta: list[str] = Field(description="Vértices del camino, del poblado propio al destino")
+    pips: int
+    recursos_nuevos: list[str]
+    puerto: str | None = None
+    riesgo_rival: bool
+    puntaje: float = Field(description="Fórmula a la vista, no el modelo de regresión")
+    razones: list[str]
+
+
+class RespuestaExpansion(BaseModel):
+    destinos: list[Destino]
 
 
 class EstadoColocacion(BaseModel):
@@ -184,6 +216,10 @@ class RespuestaChat(BaseModel):
             "Si el asistente recalculó con una hipótesis ('¿y si un rival toma…?'), las "
             "marcas que la interfaz debe aplicar para que tablero y opciones coincidan"
         ),
+    )
+    destinos: list[Destino] | None = Field(
+        default=None,
+        description="Destinos para el siguiente poblado, si el asistente los calculó",
     )
     opciones_nuevas: list[Opcion] | None = Field(
         default=None,

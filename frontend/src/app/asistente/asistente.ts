@@ -17,6 +17,7 @@ import { NgTemplateOutlet } from '@angular/common';
 
 import { ColonoApi } from '../api/colono-api';
 import type {
+  Destino,
   EstadoColocacion,
   Opcion,
   RespuestaChat,
@@ -126,6 +127,9 @@ export function fichasDe(opciones: Opcion[], mio: string | null = null): Ficha[]
   }));
 }
 
+/** La pregunta que abre el paso siguiente a la colocación inicial. */
+export const PREGUNTA_CRECER = '🧭 ¿Hacia dónde crezco?';
+
 const BIENVENIDA =
   'Hola, soy tu asistente de Catan. Carga el **tablero de demostración** y pulsa ' +
   '**Recomendar**: te propongo dónde poner tus dos primeros poblados y te explico por qué.';
@@ -169,6 +173,8 @@ export class AsistenteComponent {
   /** Estado de la colocación: viaja con cada pregunta para que el chat lo vea. */
   readonly ocupados = input<string[]>([]);
   readonly mio = input<string | null>(null);
+  /** Todos los poblados propios: con dos, el chat sabe que la colocación está completa. */
+  readonly propios = input<string[]>([]);
   /** Los dos poblados propios ya están puestos. */
   readonly completo = input(false);
   readonly actualizacion = input<Actualizacion | null>(null);
@@ -185,6 +191,8 @@ export class AsistenteComponent {
   readonly opcionesNuevas = output<Opcion[]>();
   /** El asistente recalculó con una hipótesis: el padre marca el tablero. */
   readonly estadoNuevo = output<EstadoColocacion>();
+  /** El asistente calculó hacia dónde crecer: el padre lo dibuja en el tablero. */
+  readonly destinosNuevos = output<Destino[]>();
 
   protected readonly limite = LIMITE_PREGUNTA;
   protected readonly trocear = trocear;
@@ -245,6 +253,7 @@ export class AsistenteComponent {
   }
 
   protected readonly sugerencias = computed(() => {
+    if (this.completo()) return [PREGUNTA_CRECER, '¿Cómo sigo mi estrategia?'];
     const total = this.fichas().length;
     if (total === 0) return [];
     const n = this.seleccionada() + 1;
@@ -298,6 +307,7 @@ export class AsistenteComponent {
         elegida,
         ocupados: this.ocupados(),
         mio: this.mio(),
+        propios: this.propios(),
         jugadores: this.jugadores(),
       })
       .subscribe({
@@ -309,6 +319,7 @@ export class AsistenteComponent {
           // Primero las marcas y luego las opciones: así App sabe que ya coinciden
           // y no vuelve a recalcular.
           if (r.estado_nuevo) this.estadoNuevo.emit(r.estado_nuevo);
+          if (r.destinos?.length) this.destinosNuevos.emit(r.destinos);
           if (r.opciones_nuevas?.length) {
             this.opcionesNuevas.emit(r.opciones_nuevas);
             this.agregar({ tipo: 'opciones', opciones: r.opciones_nuevas });

@@ -4,6 +4,7 @@ import {
   centroVertice,
   posicionPuerto,
   puntosPips,
+  rutaEnPuntos,
   sonVecinos,
 } from './geometria';
 
@@ -84,5 +85,15 @@ describe('regla de distancia', () => {
   it('un vértice de la costa tiene vecinos con hexágonos de mar', () => {
     // (0,-2) es tierra; (0,-3) y (1,-3) son mar.
     expect(sonVecinos('0,-2|0,-3|1,-3', '-1,-2|0,-3|0,-2')).toBe(true);
+  });
+});
+
+describe('rutaEnPuntos', () => {
+  it('une los centros de los vértices de la ruta', () => {
+    const ruta = ['-1,0|0,-1|0,0', '-1,-1|-1,0|0,-1'];
+    const [a, b] = ruta.map((id) => centroVertice(id, 50));
+    expect(rutaEnPuntos(ruta, 50)).toBe(
+      `${a.x.toFixed(1)},${a.y.toFixed(1)} ${b.x.toFixed(1)},${b.y.toFixed(1)}`,
+    );
   });
 });
