@@ -21,5 +21,6 @@ def consumo_aislado(monkeypatch) -> list[dict]:
     eventos: list[dict] = []
     monkeypatch.setattr(consumo, "limitador", consumo.LimitadorPorIp(1000, 600))
     monkeypatch.setattr(consumo, "presupuesto", consumo.Presupuesto(1.0))
+    monkeypatch.setattr(consumo, "clave", consumo.EstadoClave())
     monkeypatch.setattr(consumo, "anotar", eventos.append)
     return eventos

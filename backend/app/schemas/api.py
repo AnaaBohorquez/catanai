@@ -190,6 +190,10 @@ class Salud(BaseModel):
     version: str
     modelo_cargado: bool
     chat_con_llm: bool
+    chat_motivo: Literal["sin_clave", "clave_invalida", "sin_presupuesto"] | None = Field(
+        default=None,
+        description="Por qué el chat responde en modo básico (sin LLM), si es el caso",
+    )
 
 
 class InfoModelo(BaseModel):

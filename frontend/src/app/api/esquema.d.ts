@@ -441,6 +441,11 @@ export interface components {
             modelo_cargado: boolean;
             /** Chat Con Llm */
             chat_con_llm: boolean;
+            /**
+             * Chat Motivo
+             * @description Por qué el chat responde en modo básico (sin LLM), si es el caso
+             */
+            chat_motivo?: ("sin_clave" | "clave_invalida" | "sin_presupuesto") | null;
         };
         /** Tablero */
         Tablero: {

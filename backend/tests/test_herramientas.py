@@ -156,3 +156,49 @@ def test_la_regla_de_costos_coincide_con_la_tabla_del_codigo():
         pares = re.findall(r"(\d+) (madera|ladrillo|trigo|oveja|mineral)", tramo.group(1))
         costo = {recurso: int(n) for n, recurso in pares}
         assert costo == COSTOS[pieza], pieza
+
+
+# --- Estrategia -----------------------------------------------------------------
+
+
+def test_explicar_estrategia_usa_la_familia_de_la_seleccionada(pantalla):
+    salida, herramientas = _usar(pantalla, "explicar_estrategia", familia=None)
+    primera = pantalla["opciones"][0]
+    assert salida["opcion"] == 1
+    assert salida["familia"] == primera["explicacion"]["titulo"]
+    assert salida["plan"] and all("que" in paso for paso in salida["plan"])
+    assert {c["variable"] for c in salida["por_que_es_de_esta_familia"]} >= {
+        "par_camino", "trio_desarrollo", "puerto_alineado"
+    }
+    assert all(o["opcion"] != 1 for o in salida["otras_familias_en_pantalla"])
+    assert herramientas.fuentes == {"modelo"}
+
+
+def test_explicar_estrategia_de_otra_familia_usa_su_opcion(pantalla):
+    otra = pantalla["opciones"][1]
+    salida, _ = _usar(pantalla, "explicar_estrategia", familia=otra["estrategia"])
+    assert salida["opcion"] == 2
+
+
+def test_explicar_estrategia_sin_opcion_de_esa_familia(pantalla):
+    en_pantalla = {o["estrategia"] for o in pantalla["opciones"]}
+    ausente = next(f for f in ("expansion", "ciudades", "puerto", "desequilibrada")
+                   if f not in en_pantalla)
+    salida, _ = _usar(pantalla, "explicar_estrategia", familia=ausente)
+    assert "plan" not in salida
+    assert "Ninguna" in salida["nota"]
+
+
+def test_explicar_estrategia_no_muestra_ids(pantalla):
+    salida, _ = _usar(pantalla, "explicar_estrategia", familia=None)
+    texto = json.dumps(salida, ensure_ascii=False)
+    assert not re.search(r"-?\d+,-?\d+\|", texto)
+
+
+def test_el_plan_sigue_la_prioridad_de_la_familia(pantalla):
+    from app.services.herramientas import PRIORIDAD
+
+    for i, opcion in enumerate(pantalla["opciones"]):
+        herramientas = Herramientas(PeticionChat(pregunta="x", elegida=i, **pantalla))
+        salida = herramientas._explicar_estrategia(None)
+        assert len(salida["plan"]) == len(PRIORIDAD[opcion["estrategia"]])

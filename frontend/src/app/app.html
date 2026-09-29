@@ -7,6 +7,43 @@
         <p class="text-sm text-amber-100/90">Tu asistente para la colocación inicial en Catan</p>
       </div>
     </div>
+    <div class="relative ml-auto">
+      @if (tablero() || revisando()) {
+        <button
+          type="button"
+          class="whitespace-nowrap rounded-lg border border-amber-100/50 px-3 py-1.5 text-sm font-medium text-crema hover:bg-white/10"
+          aria-haspopup="dialog"
+          [attr.aria-expanded]="nuevaPartidaAbierta()"
+          (click)="nuevaPartidaAbierta.set(!nuevaPartidaAbierta())"
+        >
+          ↺ <span class="hidden sm:inline">Nueva partida</span><span class="sm:hidden">Nueva</span>
+        </button>
+      }
+      @if (nuevaPartidaAbierta()) {
+        <!-- Clic fuera: cierra. Va debajo del panel y encima del resto (incluida la barra del chat). -->
+        <div class="fixed inset-0 z-30" aria-hidden="true" (click)="nuevaPartidaAbierta.set(false)"></div>
+        <div
+          role="dialog"
+          aria-label="Nueva partida"
+          class="absolute right-0 top-full z-40 mt-2 flex w-[min(20rem,calc(100vw-2rem))] flex-col gap-2 rounded-xl border border-madera/20 bg-white p-3 text-stone-800 shadow-xl"
+        >
+          <p class="font-semibold text-stone-900">¿Empezar una partida nueva?</p>
+          @if (tablero() && !revisando()) {
+            <button type="button" class="rounded-lg border border-borde p-2.5 text-left hover:border-accion hover:bg-crema" (click)="nuevaColocacion()">
+              <span class="block font-medium">🔄 Nueva colocación en este tablero</span>
+              <span class="block text-sm text-stone-600">Borra tus marcas, las recomendaciones y la conversación. El tablero se queda.</span>
+            </button>
+          }
+          <button type="button" class="rounded-lg border border-borde p-2.5 text-left hover:border-red-300 hover:bg-red-50" (click)="empezarDeCero()">
+            <span class="block font-medium">🗑️ Empezar de cero</span>
+            <span class="block text-sm text-stone-600">Quita también el tablero: vuelves a tomar una foto o a cargar la demostración.</span>
+          </button>
+          <button type="button" class="self-end px-2 py-1 text-sm text-stone-600 hover:underline" (click)="nuevaPartidaAbierta.set(false)">
+            Cancelar
+          </button>
+        </div>
+      }
+    </div>
     <div class="flex items-center gap-2 text-sm" role="status" aria-live="polite">
       @switch (servidor()) {
         @case ('conectando') {
@@ -163,6 +200,7 @@
       [habilitado]="!!tablero() && conectado() && !completo() && !revisando()"
       [cargando]="recomendando()"
       [error]="errorRecomendar()"
+      [motivoBasico]="motivoChat()"
       (recomendar)="pedirRecomendacion()"
       (cambiarJugadores)="cambiarJugadores($event)"
       (seleccionar)="seleccionada.set($event)"

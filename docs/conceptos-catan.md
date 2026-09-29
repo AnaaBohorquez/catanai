@@ -171,6 +171,9 @@ El asistente usa un modelo de lenguaje (OpenAI `gpt-5-mini`), pero **no le damos
 | `plan_de_construccion` | Rondas estimadas hasta tu primer camino, poblado, ciudad y carta, con las mismas fórmulas que las variables del modelo |
 | `probabilidad_de_numero` | La probabilidad exacta de un número: pips/36 |
 | `resumen_del_tablero` | Qué recurso escasea (pips totales), los números de cada recurso y los puertos |
+| `explicar_estrategia` | La estrategia de una opción: cómo se gana con su familia, por qué el modelo la puso ahí y un plan ordenado de qué construir y en cuántas rondas |
+
+**Cómo explica la estrategia.** Las familias salen de un agrupamiento (KMeans) sobre seis capacidades de la pareja: `par_camino`, `par_ciudad`, `trio_desarrollo`, `cuarteto_poblado`, `puerto_alineado` y `desequilibrio`. Cada grupo tiene un **centro**: el perfil típico de sus parejas. Para decir "por qué esta opción es Expansión", la herramienta pone lado a lado las capacidades de la opción y las del centro de su grupo (por ejemplo, `par_camino` 4 frente a 3.96 típico). El plan ordena las piezas según la prioridad de la familia (Expansión: camino → poblado → ciudad; Ciudades: ciudad → carta → poblado; Puerto: juntar el recurso dominante y cambiarlo 2:1; Desequilibrada: llegar a un puerto primero) y le pone a cada una las rondas estimadas de `turnos_a_*`, las mismas que usa el modelo.
 
 **Cartas esperadas por ronda.** En una ronda tiran todos los jugadores, y cobras en todas las tiradas (§5.1 de AGENTS.md). Por eso un recurso con `p` pips da en promedio `p/36 × jugadores` cartas por ronda. Por ejemplo, 5 pips con 4 jugadores dan 0.56 cartas por ronda: una carta cada 1.8 rondas.
 
@@ -184,6 +187,8 @@ Así funciona una pregunta:
 4. Un **verificador de cifras** revisa que todo número con unidad (puntos, pips, %) aparezca en alguna salida de herramienta. Si no, se le pide corregir una vez; si falla otra vez, se responde con plantillas.
 
 Cada respuesta lleva etiquetas de dónde sale: **📊 Según el modelo**, **📖 Regla del juego** o **💡 Consejo general** (lo que no sale de ninguna herramienta).
+
+**Modo básico.** Sin clave, con la clave rechazada por OpenAI o con el presupuesto del día agotado, responde con **plantillas**: reconocen la intención por palabras clave (estrategia, por qué, comparar, costos, probabilidad, rivales, reglas) sobre la pregunta sin acentos ni signos, y usan las mismas herramientas. Entienden menos preguntas, por eso la respuesta lleva la etiqueta **⚙️ Modo básico** y la cabecera del chat lo avisa.
 
 **Por qué así:** si el modelo de lenguaje tuviera libertad para "recomendar", podría contradecir a la regresión, que es la parte que está validada. Con herramientas, el LLM solo **redacta**; las cifras y las recomendaciones siguen saliendo del modelo.
 

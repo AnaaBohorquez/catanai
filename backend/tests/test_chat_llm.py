@@ -268,3 +268,46 @@ def test_sin_presupuesto_se_usan_plantillas_y_health_lo_dice(monkeypatch, pantal
 
     assert r.fuente == "plantillas"
     assert cliente_http.get("/api/v1/health").json()["chat_con_llm"] is False
+    assert cliente_http.get("/api/v1/health").json()["chat_motivo"] == "sin_presupuesto"
+
+
+class AuthenticationError(Exception):
+    """Mismo nombre que la de openai: el chat la reconoce por el nombre."""
+
+
+def test_una_clave_rechazada_se_recuerda_y_health_lo_dice(
+    monkeypatch, pantalla, consumo_aislado
+):
+    monkeypatch.setattr(ajustes, "openai_api_key", "clave-de-prueba")
+    intentos = []
+
+    def rechaza():
+        intentos.append(1)
+        raise AuthenticationError("clave revocada")
+
+    monkeypatch.setattr(chat, "_crear_cliente", rechaza)
+    r = chat.responder(_peticion(pantalla, "¿Por qué la 1?"))
+    assert r.fuente == "plantillas"
+    assert consumo_aislado[-1]["motivo"] == "clave_invalida"
+
+    # La segunda pregunta ya no intenta llamar a OpenAI.
+    chat.responder(_peticion(pantalla, "¿Por qué la 1?"))
+    assert len(intentos) == 1
+    salud = cliente_http.get("/api/v1/health").json()
+    assert salud["chat_con_llm"] is False
+    assert salud["chat_motivo"] == "clave_invalida"
+
+
+def test_la_clave_rechazada_se_vuelve_a_probar_con_el_tiempo():
+    estado = consumo.EstadoClave(reintento_s=600)
+    estado.rechazada(ahora=1000)
+    assert not estado.valida(ahora=1500)
+    assert estado.valida(ahora=1601)
+    estado.aceptada()
+    assert estado.valida(ahora=1000)
+
+
+def test_sin_clave_health_da_el_motivo():
+    salud = cliente_http.get("/api/v1/health").json()
+    assert salud["chat_con_llm"] is False
+    assert salud["chat_motivo"] == "sin_clave"

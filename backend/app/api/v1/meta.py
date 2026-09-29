@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, status
 
-from app.core.config import ajustes
 from app.schemas.api import InfoModelo, Salud
 from app.services import consumo, modelo
 
@@ -20,9 +19,10 @@ def salud() -> Salud:
         estado="ok" if cargado else "degradado",
         version=VERSION,
         modelo_cargado=cargado,
-        # Con la clave puesta pero el presupuesto del día agotado, el chat ya
-        # responde con plantillas: /health lo dice.
-        chat_con_llm=ajustes.chat_con_llm and consumo.presupuesto.disponible(),
+        # Con clave rechazada o sin presupuesto, el chat responde con plantillas
+        # aunque haya clave puesta: /health lo dice y el frontend lo avisa.
+        chat_con_llm=consumo.motivo_sin_llm() is None,
+        chat_motivo=consumo.motivo_sin_llm(),
     )
 
 

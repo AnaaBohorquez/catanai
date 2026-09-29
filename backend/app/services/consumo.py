@@ -85,8 +85,46 @@ class Presupuesto:
         return self._gastado
 
 
+class EstadoClave:
+    """
+    Si OpenAI rechazó la clave. Mientras esté rechazada no se le pregunta (cada
+    intento costaría medio segundo para nada) y /health lo dice; pasado un rato se
+    vuelve a probar, por si ya se puso una clave nueva.
+    """
+
+    def __init__(self, reintento_s: int = 600) -> None:
+        self.reintento_s = reintento_s
+        self._rechazada_en: float | None = None
+        self._candado = threading.Lock()
+
+    def valida(self, ahora: float | None = None) -> bool:
+        ahora = time.monotonic() if ahora is None else ahora
+        with self._candado:
+            return self._rechazada_en is None or ahora - self._rechazada_en > self.reintento_s
+
+    def rechazada(self, ahora: float | None = None) -> None:
+        with self._candado:
+            self._rechazada_en = time.monotonic() if ahora is None else ahora
+
+    def aceptada(self) -> None:
+        with self._candado:
+            self._rechazada_en = None
+
+
 limitador = LimitadorPorIp(ajustes.chat_preguntas_por_ip, ajustes.chat_ventana_s)
 presupuesto = Presupuesto(ajustes.chat_presupuesto_diario_usd)
+clave = EstadoClave()
+
+
+def motivo_sin_llm() -> str | None:
+    """Por qué el chat responde en modo básico ahora mismo, o None si usa el LLM."""
+    if not ajustes.chat_con_llm:
+        return "sin_clave"
+    if not clave.valida():
+        return "clave_invalida"
+    if not presupuesto.disponible():
+        return "sin_presupuesto"
+    return None
 
 
 def anonimizar(ip: str) -> str:

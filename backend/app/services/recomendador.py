@@ -103,6 +103,22 @@ def _nombrar_grupos(paquete: dict) -> dict[int, str]:
     return nombres
 
 
+def perfil_de_familia(paquete: dict, familia: str) -> dict[str, float] | None:
+    """
+    El perfil típico de una familia: el centro de su grupo en el agrupamiento, en
+    las unidades originales de cada capacidad. Sirve para explicar por qué una
+    opción es de esa familia comparando sus variables con las del grupo.
+    """
+    centros = paquete["escalador_capacidades"].inverse_transform(
+        paquete["agrupamiento"].cluster_centers_
+    )
+    capacidades = paquete["capacidades"]
+    for i, nombre in paquete["nombres_grupo"].items():
+        if nombre == familia:
+            return {c: float(v) for c, v in zip(capacidades, centros[i], strict=True)}
+    return None
+
+
 def recomendar(
     tablero: dict,
     paquete: dict,

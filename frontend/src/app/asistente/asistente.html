@@ -26,6 +26,13 @@
     </button>
   </div>
 
+  @if (modoBasico()) {
+    <p class="border-b border-madera/10 bg-amber-50 px-4 py-2 text-sm text-amber-950">
+      ⚙️ El asistente está en <strong>modo básico</strong>: responde con los datos del modelo,
+      pero entiende menos preguntas. Prueba las sugerencias de abajo.
+    </p>
+  }
+
   @if (error()) {
     <p role="alert" class="mx-4 mt-3 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-800">{{ error() }}</p>
   }
@@ -71,13 +78,16 @@
               ? 'self-end rounded-br-sm bg-madera text-crema'
               : e.error
                 ? 'self-start rounded-bl-sm border border-red-300 bg-red-50 text-red-800'
-                : 'self-start rounded-bl-sm border border-madera/10 bg-white text-stone-800'
+                : 'self-start whitespace-pre-line rounded-bl-sm border border-madera/10 bg-white text-stone-800'
           "
         ><!-- En una línea: un salto aquí se vería como espacio antes de la coma. -->@for (t of trocear(e.texto); track $index) {@if (t.negrita) {<strong>{{ t.texto }}</strong>} @else {{{ t.texto }}}}</p>
-        @if (e.fuentes?.length) {
+        @if (e.fuentes?.length || e.basico) {
           <p class="-mt-1.5 flex flex-wrap gap-1.5 self-start" aria-label="De dónde sale esta respuesta">
             @for (fuente of e.fuentes; track fuente) {
               <span class="rounded-full border border-madera/15 bg-crema px-2 py-0.5 text-sm text-stone-700">{{ etiquetaFuente[fuente] }}</span>
+            }
+            @if (e.basico) {
+              <span class="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-sm text-amber-900">⚙️ Modo básico</span>
             }
           </p>
         }
@@ -149,6 +159,14 @@
                   @if (f.comparteCon.length) {
                     <p class="text-stone-700">Comparte un poblado con la opción {{ f.comparteCon.join(' y ') }}.</p>
                   }
+                  <button
+                    type="button"
+                    class="mt-3 rounded-full border border-accion/40 bg-white px-3 py-1.5 text-sm font-medium text-accion hover:bg-accion/5 disabled:opacity-50"
+                    [disabled]="pensando()"
+                    (click)="preguntarEstrategia(f)"
+                  >
+                    🧭 ¿Cómo juego esta estrategia?
+                  </button>
                 </div>
               }
             </li>

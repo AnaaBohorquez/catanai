@@ -167,6 +167,16 @@ TODOS los números, no solo los que quedan en el reparto. Si no, una ficha asign
 
 ### 5.14 `cv2.imread` no abre rutas con acentos en Windows
 La ruta del proyecto tiene "Actuaría". Leer bytes y usar `cv2.imdecode`.
+
+### 5.15 Una clave rechazada dejaba el chat en modo básico sin avisar
+Con una clave revocada, OpenAI responde `AuthenticationError`, el chat cae a
+plantillas y `/health` seguía diciendo `chat_con_llm: true` (solo miraba si había
+clave). Parecía que "el chat responde mal". Ahora `consumo.clave` recuerda el rechazo
+10 minutos (no se reintenta en cada pregunta), `/health` da `chat_motivo`
+(`sin_clave`, `clave_invalida`, `sin_presupuesto`) y el frontend muestra «⚙️ Modo
+básico». Las plantillas normalizan la pregunta (sin acentos ni signos) y reconocen
+estrategia, costos, probabilidades y reglas.
+
 ---
 
 ## 6. Arquitectura
@@ -249,10 +259,10 @@ La ruta del proyecto tiene "Actuaría". Leer bytes y usar `cv2.imdecode`.
 | Visión: puertos | plantilla del marco, editable en la revisión |
 | Revisión del tablero | lista: corregir terreno y número por hexágono, contador contra el reparto, girar/mover/cambiar puertos, confirmar con `/tableros/validar` (que ahora también revisa el reparto de terrenos y de fichas) |
 | Foto | subir o tomar con la cámara del celular (`capture`); se reduce a 1600 px en el navegador y no se guarda en el backend |
-| Chat: plantillas y LLM | LLM con herramientas, verificador, límites y registro listos y probados con un cliente simulado. Falta la clave para probarlo en vivo y correr `scripts/evaluar_chat.py` |
+| Chat: plantillas y LLM | LLM con herramientas, verificador, límites y registro; probado en vivo con `gpt-5-mini` (≈ US$0.001 por pregunta, 7 s). Clave rechazada detectada y avisada (§5.15). Plantillas normalizadas con intención de estrategia. Falta correr `scripts/evaluar_chat.py` con las 5 preguntas de estrategia |
 | Reglas verificadas | borrador de 17 entradas en `domain/reglas.md`, **ninguna verificada**: hasta entonces el chat no cita reglas. `test_la_regla_de_costos_coincide_con_la_tabla_del_codigo` mantiene la de costos igual a `COSTOS` |
 | Marcar la colocación | modo + toque (Mi poblado, Rival, Borrar); regla de distancia en el cliente; recálculo automático; segunda colocación con `mio`. Los caminos no cuentan todavía |
-| Herramientas del asistente | 11 (con `ver_estado_del_tablero`); antes 10: 4 sobre las opciones y reglas, y 6 de experto (costos, mano, conseguir un recurso, plan de construcción, probabilidades, tablero), todas calculadas desde el dominio |
+| Herramientas del asistente | 12: 5 sobre las opciones, el tablero marcado y las reglas; 6 de experto (costos, mano, conseguir un recurso, plan de construcción, probabilidades, tablero) y `explicar_estrategia` (ficha de la familia, perfil frente al centro de su grupo en KMeans, plan ordenado por la prioridad de la familia). Todas calculadas desde el dominio o el modelo |
 | Plantilla "22 % más de puntos" | cifra retirada del chat hasta verificarla contra `parejas.csv` (`make dataset`) |
-| Frontend Angular | diseño "tablero + asistente": tablero fijo con la opción resaltada; panel con franja de opciones, tarjetas dentro del chat y campo fijo en móvil. Un solo estado de selección en `App` |
+| Frontend Angular | diseño "tablero + asistente": tablero fijo con la opción resaltada; panel con franja de opciones, tarjetas dentro del chat y campo fijo en móvil. Un solo estado de selección en `App`. Botón «¿Cómo juego esta estrategia?» en cada tarjeta y «Nueva partida» (nueva colocación en el mismo tablero o empezar de cero) |
 | Despliegue | configuración lista (`docs/despliegue.md`); falta crear los servicios |

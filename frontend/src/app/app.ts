@@ -8,6 +8,7 @@ import type {
   Hexagono,
   Opcion,
   RespuestaRecomendar,
+  Salud,
   Tablero,
   Terreno,
 } from './api/tipos';
@@ -53,6 +54,7 @@ const CONFIANZA_NUMERO = 0.5;
   selector: 'app-root',
   styleUrl: './app.css',
   templateUrl: './app.html',
+  host: { '(document:keydown.escape)': 'nuevaPartidaAbierta.set(false)' },
 })
 export class App implements OnInit {
   private readonly api = inject(ColonoApi);
@@ -62,6 +64,10 @@ export class App implements OnInit {
     const estado = this.servidor();
     return estado === 'listo' || estado === 'degradado';
   });
+  /** Por qué el chat responde sin IA, según `/health`; null si la usa. */
+  protected readonly motivoChat = signal<Salud['chat_motivo']>(null);
+  /** El panel de "Nueva partida" está abierto. */
+  protected readonly nuevaPartidaAbierta = signal(false);
 
   /** El tablero en pantalla, venga de la demo o (más adelante) de una foto. */
   protected readonly tablero = signal<Tablero | null>(null);
@@ -168,6 +174,7 @@ export class App implements OnInit {
         next: (salud) => {
           clearTimeout(aviso);
           this.servidor.set(salud.modelo_cargado ? 'listo' : 'degradado');
+          this.motivoChat.set(salud.chat_motivo ?? null);
         },
         error: () => {
           clearTimeout(aviso);
@@ -183,13 +190,7 @@ export class App implements OnInit {
       next: (tablero) => {
         this.tablero.set(tablero);
         // Las opciones y las marcas eran de otro tablero: ya no valen.
-        this.respuesta.set(null);
-        this.marcas.set({});
-        this.modo.set(null);
-        this.recomendacionActiva = false;
-        this.firmaRespuesta = null;
-        this.errorRecomendar.set(null);
-        this.conversacion.update((n) => n + 1);
+        this.reiniciarColocacion();
         this.cargando.set(false);
       },
       error: (e: HttpErrorResponse) => {
@@ -251,13 +252,7 @@ export class App implements OnInit {
   ) {
     this.tablero.set(tablero);
     // Un tablero en revisión todavía no sirve para recomendar: marcas y opciones fuera.
-    this.respuesta.set(null);
-    this.marcas.set({});
-    this.modo.set(null);
-    this.recomendacionActiva = false;
-    this.firmaRespuesta = null;
-    this.errorRecomendar.set(null);
-    this.conversacion.update((n) => n + 1);
+    this.reiniciarColocacion();
 
     this.revisando.set(true);
     this.dudosos.set(dudosos);
@@ -388,6 +383,41 @@ export class App implements OnInit {
     this.numerosDudosos.set(new Set());
     this.validado = null;
     this.respaldo = null;
+  }
+
+  // --- Nueva partida ----------------------------------------------------------------
+
+  /** Otra colocación sobre el mismo tablero: útil con un tablero de foto ya revisado. */
+  protected nuevaColocacion(): void {
+    this.nuevaPartidaAbierta.set(false);
+    this.reiniciarColocacion();
+  }
+
+  /** Todo fuera: se vuelve a la pantalla inicial (foto o demostración). */
+  protected empezarDeCero(): void {
+    this.nuevaPartidaAbierta.set(false);
+    this.salirDeRevision(null);
+    this.reiniciarColocacion();
+    this.error.set(null);
+    this.tableroVisible.set(true);
+  }
+
+  /**
+   * Borra marcas, opciones y conversación, y conserva el tablero. Subir `pedido`
+   * descarta una recomendación que siguiera en camino.
+   */
+  private reiniciarColocacion(): void {
+    this.pedido++;
+    this.recomendando.set(false);
+    this.respuesta.set(null);
+    this.seleccionada.set(0);
+    this.marcas.set({});
+    this.modo.set(null);
+    this.aviso.set(null);
+    this.recomendacionActiva = false;
+    this.firmaRespuesta = null;
+    this.errorRecomendar.set(null);
+    this.conversacion.update((n) => n + 1);
   }
 
   protected cambiarJugadores(n: number): void {

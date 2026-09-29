@@ -17,9 +17,11 @@ from __future__ import annotations
 import json
 import re
 import time
+import unicodedata
 from typing import Any
 
 from app.core.config import ajustes
+from app.domain.reglas import buscar_reglas, reglas_verificadas
 from app.schemas.api import PeticionChat, RespuestaChat
 from app.services import consumo
 from app.services.herramientas import DEFINICIONES, Herramientas
@@ -40,6 +42,8 @@ Cómo trabajas:
   - Si el usuario dice qué cartas tiene: que_me_falta, siempre.
   - Cómo obtener un recurso con su opción: como_conseguir.
   - Cuántas rondas para construir algo con su opción: plan_de_construccion.
+  - Estrategia, plan de juego, qué hacer después, cómo ganar con una opción o "¿y si
+    juego Ciudades?": explicar_estrategia (null = la opción seleccionada).
   - Probabilidad de un número: probabilidad_de_numero.
   - Qué escasea o qué puertos hay en el tablero: resumen_del_tablero.
   - Cualquier otra regla: consultar_reglas.
@@ -52,7 +56,8 @@ Cómo trabajas:
   al orden que a la cifra.
 - Nunca propongas una colocación por tu cuenta. Si te preguntan qué hacer si otro
   jugador ocupa un vértice, o si ya colocaron su primer poblado, usa
-  solicitar_recomendacion con los ids de vértice de ver_resultados_actuales.
+  solicitar_recomendacion nombrando los poblados como en pantalla (opción N,
+  poblado K).
 - Si una regla no aparece en consultar_reglas, dilo; no la recites de memoria.
 - Todo consejo que no salga de las herramientas empieza con "Consejo general:" y no
   lleva cifras.
@@ -103,15 +108,20 @@ def responder(peticion: PeticionChat, ip: str = "desconocida") -> RespuestaChat:
         raise LimiteExcedido
 
     inicio = time.perf_counter()
-    motivo = "sin_clave" if not ajustes.chat_con_llm else "sin_presupuesto"
+    motivo = consumo.motivo_sin_llm()
 
-    if ajustes.chat_con_llm and consumo.presupuesto.disponible():
+    if motivo is None:
         herramientas = Herramientas(peticion)
         uso = _uso_vacio()
         try:
             texto = _con_llm(peticion, herramientas, uso)
         except Exception as error:  # noqa: BLE001 - cualquier fallo cae a plantillas
             texto, uso["motivo"] = None, f"error:{type(error).__name__}"
+            # Clave revocada o equivocada: dejar de intentarlo por un rato y decirlo
+            # en /health, en vez de caer a plantillas en silencio.
+            if type(error).__name__ == "AuthenticationError":
+                consumo.clave.rechazada()
+                uso["motivo"] = "clave_invalida"
         usd = consumo.costo_usd(
             ajustes.openai_model, uso["entrada"], uso["cache"], uso["salida"]
         )
@@ -123,6 +133,7 @@ def responder(peticion: PeticionChat, ip: str = "desconocida") -> RespuestaChat:
             usd=round(usd, 6),
         )
         if texto:
+            consumo.clave.aceptada()
             consumo.anotar({**evento, "resultado": "llm", "latencia_ms": _ms(inicio)})
             return RespuestaChat(
                 texto=texto,
@@ -301,19 +312,91 @@ def _indice_elegido(peticion: PeticionChat) -> int:
     return min(peticion.elegida, max(len(peticion.opciones) - 1, 0))
 
 
+#: Palabras que delatan cada intención, ya normalizadas (sin acentos ni signos).
+#: Se buscan como fragmentos dentro de la pregunta con espacios a los lados, así
+#: que " vs " no coincide dentro de otra palabra.
+_COSTO = ("cuesta", "costo", "cuanto vale", "que necesito para", "precio", "que pide",
+          "recursos para", "materiales")
+_PROBABILIDAD = ("probabilidad", "probable", "que tan seguido", "cada cuanto", "porcentaje")
+_QUITAN = ("quitan", "quitaron", "ocupa", "tomaron", "toma ", "roba", "segundo poblado",
+           "serpiente", "rival")
+_COMPARAR = ("compar", "diferencia", "frente a", " vs ", "versus", "mejor que", "o la ")
+_POR_QUE = ("por que", "porque", "razon", "explica", "justifica")
+_ESTRATEGIA = ("estrategia", "plan", "como juego", "como jugar", "como gano", "ganar",
+               "que hago", "que hacer", "despues", "siguiente", "construyo", "construir",
+               "primero", "empiezo", "empezar", "prioridad", "enfoque", "consejo")
+_ALTERNATIVAS = ("otra", "alternativa", "opciones", "otras vias")
+_PIPS = ("pips", "puntitos")
+_REGLAS = ("regla", "ladron", "siete", " 7 ", "descart", "se puede", "puedo",
+           "permitido", "comerci", "intercambi", "caballero", "ejercito", "mas largo",
+           "victoria", "banco", "dados")
+
+_FAMILIAS_EN_PREGUNTA = {
+    "expansion": ("expansion", "expandir", "expando"),
+    "ciudades": ("ciudades", "desarrollo"),
+    "puerto": ("puerto", "conversion"),
+    "desequilibrada": ("desequilibr",),
+}
+_PIEZAS_EN_PREGUNTA = {
+    "camino": ("camino", "carretera"),
+    "poblado": ("poblado", "asentamiento", "pueblo"),
+    "ciudad": ("ciudad",),
+    "carta_desarrollo": ("carta",),
+}
+
+#: Lo que el modo básico sabe contestar; se ofrece cuando no entiende la pregunta.
+SUGERENCIAS_BASICAS = (
+    "¿Qué estrategia sigo con esta opción?",
+    "¿Por qué me conviene esta opción?",
+    "¿Cómo se compara con la opción 2?",
+    "¿Cuánto cuesta una ciudad?",
+)
+
+
+def normalizar(texto: str) -> str:
+    """
+    Minúsculas, sin acentos ni signos, con espacios a los lados: así "¿Qué
+    estrategia…?" y "que estrategia" se reconocen igual.
+    """
+    sin_acentos = unicodedata.normalize("NFD", texto.lower())
+    letras = "".join(c for c in sin_acentos if unicodedata.category(c) != "Mn")
+    return " " + " ".join(re.sub(r"[^a-z0-9]+", " ", letras).split()) + " "
+
+
+def _dice(pregunta: str, palabras: tuple[str, ...]) -> bool:
+    return any(p in pregunta for p in palabras)
+
+
+def _nombrada(pregunta: str, catalogo: dict[str, tuple[str, ...]]) -> str | None:
+    """La primera entrada del catálogo que la pregunta menciona."""
+    return next((clave for clave, ps in catalogo.items() if _dice(pregunta, ps)), None)
+
+
 def _con_plantillas(peticion: PeticionChat) -> str:
     """
     Respuesta sin modelo de lenguaje, a partir de lo ya calculado.
 
-    Habla siempre de la opción que el usuario eligió en pantalla, y toda cifra sale
-    de las opciones que calculó el modelo. Cubre las preguntas que de verdad
-    aparecen: por qué esa opción, qué construir primero, cómo se compara con otra,
-    qué otras vías hay y qué hacer si le quitan un vértice.
+    Reconoce la intención por palabras clave sobre la pregunta normalizada y usa las
+    mismas herramientas que el modelo de lenguaje, así que toda cifra sale del
+    modelo o de las reglas. El orden importa: lo más específico va primero ("¿qué
+    hago si me quitan…?" es de rivales, no de estrategia).
     """
-    pregunta = peticion.pregunta.lower()
+    pregunta = normalizar(peticion.pregunta)
+    herramientas = Herramientas(peticion)
     opciones = peticion.opciones
 
+    # Costos y probabilidades no dependen de la recomendación.
+    if _dice(pregunta, _COSTO):
+        return _texto_costo(herramientas, _nombrada(pregunta, _PIEZAS_EN_PREGUNTA))
+    if _dice(pregunta, _PROBABILIDAD):
+        numero = next((int(n) for n in re.findall(r"\b(\d{1,2})\b", pregunta)
+                       if 2 <= int(n) <= 12), None)
+        if numero is not None:
+            return _texto_probabilidad(herramientas, numero)
+
     if not opciones:
+        if _dice(pregunta, _REGLAS):
+            return _texto_reglas(peticion.pregunta)
         return (
             "Todavía no tengo una recomendación que explicar. Arma tu tablero y "
             "pulsa Recomendar, y con gusto te cuento por qué salió lo que salió."
@@ -324,12 +407,21 @@ def _con_plantillas(peticion: PeticionChat) -> str:
     exp = elegida.explicacion
     nombre = f"la opción {indice + 1}, **{exp.titulo}**"
     otras = [(i, o) for i, o in enumerate(opciones) if i != indice]
+    familia = _nombrada(pregunta, _FAMILIAS_EN_PREGUNTA)
 
-    if any(p in pregunta for p in ("construyo", "construir", "primero", "empiezo",
-                                   "empezar", "turno")):
-        return f"Con {nombre}: {exp.haz} {exp.evita}"
+    if _dice(pregunta, _QUITAN):
+        libres = [(i, o) for i, o in otras if not set(o.vertices) & set(elegida.vertices)]
+        consejo = (
+            f" De las que tienes en pantalla, no comparten vértice con la tuya: "
+            f"{_listar(libres)}." if libres else ""
+        )
+        return (
+            "Si te quitan un vértice, márcalo como **Rival** en el tablero: recalculo "
+            "al momento, porque el mejor compañero cambia. Y si ya pusiste tu primer "
+            "poblado, márcalo como **Mi poblado** y te recomiendo el segundo." + consejo
+        )
 
-    if any(p in pregunta for p in ("compar", "compár", "diferencia", "frente a", " vs")):
+    if _dice(pregunta, _COMPARAR):
         otro = _otra_opcion(pregunta, indice, len(opciones))
         if otro is None:
             return "Solo hay una opción calculada, así que no tengo con qué compararla."
@@ -344,46 +436,26 @@ def _con_plantillas(peticion: PeticionChat) -> str:
             f"La {indice + 1}: {exp.resumen} La {otro + 1}: {otra.explicacion.resumen}"
         )
 
-    if any(p in pregunta for p in ("por qué", "porque", "razón", "explica")):
+    if _dice(pregunta, _POR_QUE):
+        razones = " y ".join(exp.porque[:2])
         return (
             f"Elegiste {nombre}, que estima {elegida.prediccion:.1f} puntos en la "
-            f"simulación. {exp.resumen} Pesa sobre todo que {exp.porque[0]}. "
+            f"simulación. {exp.resumen} Pesa sobre todo que {razones}. "
             f"Produce {exp.produccion}."
         )
 
-    if any(p in pregunta for p in ("ciudad", "ciudades", "expansión", "expansion",
-                                   "puerto", "desarrollo", "otra", "alternativa")):
-        for i, opcion in otras:
-            if any(palabra in opcion.explicacion.titulo.lower()
-                   for palabra in pregunta.split() if len(palabra) > 3):
-                return (
-                    f"Sí, tienes esa vía: la opción {i + 1}, "
-                    f"**{opcion.explicacion.titulo}**, estima "
-                    f"{opcion.prediccion:.1f} puntos frente a "
-                    f"{elegida.prediccion:.1f} de la que elegiste. "
-                    f"{opcion.explicacion.resumen} {opcion.explicacion.haz}"
-                )
+    if familia is not None or _dice(pregunta, _ESTRATEGIA):
+        return _texto_estrategia(herramientas, familia)
+
+    if _dice(pregunta, _ALTERNATIVAS):
         if not otras:
             return "No hay otras opciones calculadas para este tablero."
         return (
             f"Las otras vías que salieron son: {_listar(otras)}. "
-            "Dime cuál te interesa y te la detallo."
+            "Pregúntame «¿cómo juego Ciudades?» (o la que te interese) y te la detallo."
         )
 
-    if any(p in pregunta for p in ("quitan", "quitaron", "ocupado", "tomaron",
-                                   "segundo", "serpiente")):
-        libres = [(i, o) for i, o in otras if not set(o.vertices) & set(elegida.vertices)]
-        consejo = (
-            f" De las que tienes en pantalla, no comparten vértice con la tuya: "
-            f"{_listar(libres)}." if libres else ""
-        )
-        return (
-            "Si te quitan un vértice, márcalo como **Rival** en el tablero: recalculo "
-            "al momento, porque el mejor compañero cambia. Y si ya pusiste tu primer "
-            "poblado, márcalo como **Mi poblado** y te recomiendo el segundo." + consejo
-        )
-
-    if any(p in pregunta for p in ("pips", "puntitos", "más pips")):
+    if _dice(pregunta, _PIPS):
         # Sin cifra hasta verificarla contra el dataset (AGENTS.md §8).
         return (
             "Los pips dicen cuántas cartas recibes, no de qué tipo. En la "
@@ -392,12 +464,82 @@ def _con_plantillas(peticion: PeticionChat) -> str:
             "app no ordena por pips."
         )
 
+    if _dice(pregunta, _REGLAS):
+        return _texto_reglas(peticion.pregunta)
+
     return (
-        f"Elegiste {nombre}, que estima {elegida.prediccion:.1f} puntos en la "
-        f"simulación: {exp.resumen} Puedes preguntarme por qué conviene, qué "
-        "construir primero, cómo se compara con otra opción o qué hacer si te "
-        "quitan uno de los vértices."
+        "No estoy seguro de haber entendido la pregunta. Puedo ayudarte con cosas como: "
+        + " · ".join(SUGERENCIAS_BASICAS)
     )
+
+
+def _texto_estrategia(herramientas: Herramientas, familia: str | None) -> str:
+    """La salida de ``explicar_estrategia`` en prosa."""
+    datos = herramientas._explicar_estrategia(familia)
+    if "error" in datos:
+        return datos["error"]
+
+    if "opcion" in datos:
+        inicio = (
+            f"**{datos['familia']}** (opción {datos['opcion']}, "
+            f"{datos['puntos_estimados']:.1f} puntos estimados en la simulación): "
+            f"{datos['resumen']}"
+        )
+    else:
+        inicio = (
+            f"**{datos['familia']}**: {datos['resumen']} Ninguna opción en pantalla es "
+            "de esta familia; pulsa Recomendar de nuevo o marca otros vértices si la buscas."
+        )
+    partes = [inicio, f"Cómo se gana: {datos['como_se_gana']}"]
+    if datos.get("plan"):
+        pasos = "; ".join(
+            f"{n}) {_paso_en_texto(p)}" for n, p in enumerate(datos["plan"], start=1)
+        )
+        partes.append(f"Plan: {pasos}.")
+    partes.append(f"Haz: {datos['haz']}\nEvita: {datos['evita']}")
+    if datos["otras_familias_en_pantalla"]:
+        otras = ", ".join(
+            f"opción {o['opcion']}: {o['familia']} ({o['puntos_estimados']:.1f})"
+            for o in datos["otras_familias_en_pantalla"]
+        )
+        partes.append(f"Otras vías en pantalla: {otras}.")
+    return "\n\n".join(partes)
+
+
+def _paso_en_texto(paso: dict) -> str:
+    if "rondas_estimadas" in paso:
+        return f"{paso['que']} (en unas {paso['rondas_estimadas']:.1f} rondas)"
+    if "cartas_por_ronda" in paso:
+        return f"{paso['que']} ({paso['cartas_por_ronda']:.1f} cartas por ronda)"
+    return paso["que"]
+
+
+def _texto_costo(herramientas: Herramientas, pieza: str | None) -> str:
+    datos = herramientas._costo_de_construccion(pieza or "todas")
+    frases = []
+    for nombre, d in datos.items():
+        recursos = ", ".join(f"{n} {r}" for r, n in d["costo"].items())
+        puntos = d["puntos_de_victoria"]
+        premio = ""
+        if puntos:
+            premio = f" y da {puntos} punto{'s' if puntos != 1 else ''} de victoria"
+        frases.append(f"**{nombre.replace('_', ' de ')}**: {recursos}{premio}.")
+    return "Según las reglas: " + " ".join(frases)
+
+
+def _texto_probabilidad(herramientas: Herramientas, numero: int) -> str:
+    d = herramientas._probabilidad_de_numero(numero)
+    return (
+        f"El {numero} sale en {d['combinaciones_de_36']} de 36 combinaciones de dos "
+        f"dados: {d['porcentaje']} % por tirada. {d['nota']}"
+    )
+
+
+def _texto_reglas(pregunta: str) -> str:
+    encontradas = buscar_reglas(pregunta, reglas_verificadas(), cuantas=1)
+    if not encontradas:
+        return "No tengo una regla verificada sobre eso."
+    return f"Según las reglas: {encontradas[0]['texto']}"
 
 
 def _listar(opciones: list) -> str:

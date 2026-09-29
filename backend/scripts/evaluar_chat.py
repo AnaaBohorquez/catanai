@@ -38,7 +38,7 @@ PREGUNTAS: list[tuple[str, str | None]] = [
     ("¿Por qué la opción 1?", "ver_resultados_actuales"),
     ("Compara la opción 1 con la 2", "comparar_opciones"),
     ("¿Por qué la 2 estima menos que la 1?", "comparar_opciones"),
-    ("¿Qué construyo primero con la opción 1?", "ver_resultados_actuales"),
+    ("¿Qué construyo primero con la opción 1?", "explicar_estrategia"),
     ("Si un rival toma la opción 1, poblado 1, ¿dónde pongo mis poblados?",
      "solicitar_recomendacion"),
     ("Ya puse mi primer poblado en la opción 2, poblado 1: ¿cuál es el mejor segundo?",
@@ -60,6 +60,12 @@ PREGUNTAS: list[tuple[str, str | None]] = [
     ("¿Qué tan probable es que salga un 8?", "probabilidad_de_numero"),
     ("¿Qué recurso escasea en este tablero?", "resumen_del_tablero"),
     ("¿Cuánto cuesta una carta de desarrollo?", "costo_de_construccion"),
+    # Estrategia
+    ("¿Qué estrategia me conviene?", "explicar_estrategia"),
+    ("¿Cómo juego Expansión?", "explicar_estrategia"),
+    ("¿Qué construyo primero y qué después?", "explicar_estrategia"),
+    ("¿Y si juego Ciudades en vez de Expansión?", "explicar_estrategia"),
+    ("¿Por qué esta opción es de su familia y no de otra?", "explicar_estrategia"),
 ]
 
 

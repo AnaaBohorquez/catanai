@@ -22,8 +22,9 @@ from app.domain.simulador import TOPOLOGIA
 from app.domain.tablero import COSTOS, PIPS, RECURSOS
 from app.domain.variables import _tasa_de_cambio, pips_por_recurso_del_tablero
 from app.schemas.api import EstadoColocacion, Opcion, PeticionChat, PeticionRecomendar
+from app.services import modelo
 from app.services.recomendacion import ModeloNoDisponible, calcular
-from app.services.recomendador import describir_vertice
+from app.services.recomendador import ESTRATEGIAS, describir_vertice, perfil_de_familia
 from app.services.serializers import id_vertice, tablero_desde_api, vertice_desde_id
 
 #: Puntos de victoria que da cada pieza al construirla. La carta de desarrollo no
@@ -251,9 +252,64 @@ DEFINICIONES_EXPERTO = [
             "type": "object", "properties": {}, "required": [], "additionalProperties": False
         },
     },
+    {
+        "type": "function",
+        "name": "explicar_estrategia",
+        "description": (
+            "La estrategia de juego de una opción: cómo se gana con su familia, por qué el "
+            "modelo la puso en esa familia, un plan ordenado de qué construir primero y en "
+            "cuántas rondas, y qué opción en pantalla representa a cada otra familia. "
+            "Úsala para '¿qué estrategia…?', '¿cómo juego…?', '¿qué hago después?', "
+            "'¿cómo gano?' o '¿y si juego Ciudades?'."
+        ),
+        "strict": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "familia": {
+                    "type": ["string", "null"],
+                    "enum": [*ESTRATEGIAS, None],
+                    "description": "null = la familia de la opción seleccionada",
+                },
+            },
+            "required": ["familia"],
+            "additionalProperties": False,
+        },
+    },
 ]
 
 DEFINICIONES = DEFINICIONES + DEFINICIONES_EXPERTO
+
+#: Qué mide cada capacidad del agrupamiento, en palabras de jugador.
+SIGNIFICADO_CAPACIDAD = {
+    "par_camino": "pips de madera y ladrillo a la vez (el menor de los dos)",
+    "par_ciudad": "trigo y mineral en la proporción de la ciudad (2 y 3)",
+    "trio_desarrollo": "pips de trigo, oveja y mineral a la vez (el menor de los tres)",
+    "cuarteto_poblado": "los cuatro recursos del poblado a la vez",
+    "puerto_alineado": "1 si tiene puerto 2:1 del recurso que más produce",
+    "desequilibrio": "fracción de la producción que viene de un solo recurso",
+}
+
+#: Cómo se llega a 10 puntos con cada familia.
+COMO_SE_GANA = {
+    "expansion": "Muchos poblados (1 punto cada uno) y la carta de camino más largo "
+                 "(2 puntos).",
+    "ciudades": "Ciudades (2 puntos cada una) y cartas de desarrollo: ejército mayor "
+                "(2 puntos) y cartas de punto de victoria.",
+    "puerto": "Conviertes tu recurso dominante 2:1 en lo que te falte y construyes de todo "
+              "sin depender de los demás.",
+    "desequilibrada": "Es difícil: necesitas un puerto o comerciar mucho para gastar lo que "
+                      "produces.",
+}
+
+#: Orden de construcción que prioriza cada familia. "acumular" es juntar el recurso
+#: dominante para cambiarlo en el puerto; "puerto" es llegar a uno.
+PRIORIDAD = {
+    "expansion": ["camino", "poblado", "ciudad"],
+    "ciudades": ["ciudad", "carta_desarrollo", "poblado"],
+    "puerto": ["acumular", "poblado", "ciudad"],
+    "desequilibrada": ["puerto", "camino", "poblado"],
+}
 
 
 @dataclass
@@ -547,7 +603,100 @@ class Herramientas:
             "puertos": puertos or {"ninguno": 0},
         }
 
+    def _explicar_estrategia(self, familia: str | None = None) -> dict:
+        opciones = self.peticion.opciones
+        if familia is not None and familia not in ESTRATEGIAS:
+            return {"error": f"Familia desconocida: {familia}. Son: {', '.join(ESTRATEGIAS)}."}
+        if familia is None:
+            if not opciones:
+                return {"error": "Primero hace falta una recomendación en pantalla."}
+            familia = self._opcion_seleccionada().estrategia
+
+        # La opción que representa a la familia: la seleccionada si es de ella; si no,
+        # la mejor en pantalla de esa familia (las opciones vienen ordenadas).
+        seleccionada = self._opcion_seleccionada()
+        if seleccionada is not None and seleccionada.estrategia == familia:
+            indice = self._seleccionada()
+        else:
+            indice = next((i for i, o in enumerate(opciones) if o.estrategia == familia), None)
+
+        self.fuentes.add("modelo")
+        ficha = ESTRATEGIAS[familia]
+        salida: dict = {
+            "familia": ficha["nombre"],
+            "resumen": ficha["resumen"],
+            "como_se_gana": COMO_SE_GANA[familia],
+            "haz": ficha["haz"],
+            "evita": ficha["evita"],
+        }
+        if indice is None:
+            salida["nota"] = "Ninguna opción en pantalla es de esta familia."
+        else:
+            opcion = opciones[indice]
+            salida["opcion"] = indice + 1
+            salida["puntos_estimados"] = opcion.prediccion
+            salida["por_que_es_de_esta_familia"] = self._comparar_con_familia(opcion, familia)
+            salida["plan"] = self._plan_de_familia(opcion, familia)
+        salida["otras_familias_en_pantalla"] = [
+            {
+                "opcion": i + 1,
+                "familia": o.explicacion.titulo,
+                "puntos_estimados": o.prediccion,
+            }
+            for i, o in enumerate(opciones)
+            if o.estrategia != familia
+        ]
+        return salida
+
     # --- Apoyo -------------------------------------------------------------
+
+    @staticmethod
+    def _comparar_con_familia(opcion: Opcion, familia: str) -> list[dict] | str:
+        """
+        Las capacidades de la opción junto al perfil típico de su familia (el centro
+        de su grupo en el agrupamiento): así se ve en qué se parece a las demás.
+        """
+        paquete = modelo.paquete()
+        perfil = perfil_de_familia(paquete, familia) if paquete else None
+        if perfil is None:
+            return "El agrupamiento del modelo no está disponible."
+        # +0.0 evita que un -0.0 del centro se imprima con signo.
+        return [
+            {
+                "variable": c,
+                "significa": SIGNIFICADO_CAPACIDAD.get(c, c),
+                "esta_opcion": round(opcion.variables.get(c, 0), 2) + 0.0,
+                "tipico_de_la_familia": round(valor, 2) + 0.0,
+            }
+            for c, valor in perfil.items()
+        ]
+
+    def _plan_de_familia(self, opcion: Opcion, familia: str) -> list[dict]:
+        """Pasos en el orden que prioriza la familia, con las rondas estimadas."""
+        v = opcion.variables
+        ritmo = self._cartas_por_ronda(opcion)
+        dominante = max(RECURSOS, key=lambda r: v.get(f"pips_{r}", 0))
+        pasos = []
+        for paso in PRIORIDAD[familia]:
+            if paso == "acumular":
+                pasos.append({
+                    "que": f"juntar {dominante} y cambiarlo en el puerto",
+                    "cartas_por_ronda": ritmo[dominante],
+                    "por_que": "es lo que más produces; en su puerto 2:1 vale el doble",
+                })
+            elif paso == "puerto":
+                pasos.append({
+                    "que": "llegar a un puerto con caminos",
+                    "por_que": f"produces sobre todo {dominante} y sin puerto lo cambias 4:1",
+                })
+            else:
+                pasos.append({
+                    "que": paso.replace("_", " de "),
+                    "rondas_estimadas": round(v.get(f"turnos_a_{paso}", 0), 1),
+                    "puntos_de_victoria": PUNTOS_POR_PIEZA[paso],
+                })
+        return pasos
+
 
     def _opcion_seleccionada(self) -> Opcion | None:
         return self.peticion.opciones[self._seleccionada()] if self.peticion.opciones else None

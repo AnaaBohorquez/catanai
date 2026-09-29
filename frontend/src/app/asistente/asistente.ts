@@ -19,6 +19,7 @@ import type {
   Opcion,
   RespuestaChat,
   RespuestaRecomendar,
+  Salud,
   Tablero,
 } from '../api/tipos';
 import {
@@ -61,6 +62,8 @@ type Entrada =
       texto: string;
       error?: boolean;
       fuentes?: Fuente[];
+      /** Respondida sin IA, con plantillas: entiende menos preguntas. */
+      basico?: boolean;
     }
   | { tipo: 'opciones'; opciones: Opcion[] };
 
@@ -166,6 +169,8 @@ export class AsistenteComponent {
   readonly habilitado = input(false);
   readonly cargando = input(false);
   readonly error = input<string | null>(null);
+  /** Por qué el chat está sin IA según `/health`, o null si la usa. */
+  readonly motivoBasico = input<Salud['chat_motivo']>(null);
 
   readonly recomendar = output<void>();
   readonly cambiarJugadores = output<number>();
@@ -183,6 +188,13 @@ export class AsistenteComponent {
   protected readonly pensando = signal(false);
 
   private readonly final = viewChild<ElementRef<HTMLElement>>('final');
+
+  /**
+   * Si la última respuesta llegó sin IA. Manda sobre `/health`, que se consulta
+   * solo al abrir la página: la clave puede fallar (o volver) después.
+   */
+  private readonly ultimaBasica = signal<boolean | null>(null);
+  protected readonly modoBasico = computed(() => this.ultimaBasica() ?? !!this.motivoBasico());
 
   /**
    * La conversación. `linkedSignal` la reinicia sola cuando cambia el número de
@@ -230,7 +242,7 @@ export class AsistenteComponent {
     const total = this.fichas().length;
     if (total === 0) return [];
     const n = this.seleccionada() + 1;
-    const lista = [`¿Por qué la opción ${n}?`, '¿Qué construyo primero?', '¿Y si me quitan un vértice?'];
+    const lista = [`¿Por qué la opción ${n}?`, '¿Qué estrategia sigo?', '¿Y si me quitan un vértice?'];
     if (total > 1) lista.push(`Compárala con la opción ${n === 1 ? 2 : 1}`);
     return lista;
   });
@@ -246,7 +258,20 @@ export class AsistenteComponent {
     this.abierta.update((actual) => (actual === indice ? null : indice));
   }
 
-  protected enviar(texto: string): void {
+  /** El botón de la tarjeta pregunta por la estrategia de esa opción. */
+  protected preguntarEstrategia(f: Ficha): void {
+    this.seleccionar.emit(f.indice);
+    this.enviar(
+      `¿Cómo juego la estrategia ${f.opcion.explicacion.titulo} de la opción ${f.indice + 1}?`,
+      f.indice,
+    );
+  }
+
+  /**
+   * `elegida` se pasa aparte cuando la pregunta sale de una tarjeta: la selección
+   * que acaba de emitirse aún no ha vuelto como `input` del padre.
+   */
+  protected enviar(texto: string, elegida = this.seleccionada()): void {
     const pregunta = texto.trim().slice(0, LIMITE_PREGUNTA);
     if (!pregunta || this.pensando()) return;
 
@@ -264,7 +289,7 @@ export class AsistenteComponent {
         historial,
         tablero: this.tablero(),
         opciones: this.respuesta()?.opciones ?? [],
-        elegida: this.seleccionada(),
+        elegida,
         ocupados: this.ocupados(),
         mio: this.mio(),
         jugadores: this.jugadores(),
@@ -272,7 +297,9 @@ export class AsistenteComponent {
       .subscribe({
         next: (r) => {
           if (!this.sigueVigente(conversacion)) return;
-          this.agregar({ tipo: 'texto', rol: 'asistente', texto: r.texto, fuentes: r.fuentes });
+          const basico = r.fuente === 'plantillas';
+          this.ultimaBasica.set(basico);
+          this.agregar({ tipo: 'texto', rol: 'asistente', texto: r.texto, fuentes: r.fuentes, basico });
           // Primero las marcas y luego las opciones: así App sabe que ya coinciden
           // y no vuelve a recalcular.
           if (r.estado_nuevo) this.estadoNuevo.emit(r.estado_nuevo);
