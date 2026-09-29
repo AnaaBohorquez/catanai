@@ -70,7 +70,61 @@
   <!-- 3. Conversación: la única zona que se desplaza en escritorio. -->
   <div class="flex flex-1 flex-col gap-3 p-4 lg:overflow-y-auto" aria-live="polite">
     @for (e of entradas(); track $index) {
-      @if (e.tipo === 'texto') {
+      @if (e.tipo === 'texto' && e.bloques) {
+        <!-- Respuesta del asistente con el formato de las tarjetas: título, listas, Haz/Evita. -->
+        <div class="flex max-w-[92%] flex-col gap-2 self-start rounded-2xl rounded-bl-sm border border-madera/10 bg-white px-3.5 py-3 text-[0.95rem] leading-relaxed text-stone-800">
+          @for (b of e.bloques; track $index) {
+            @switch (b.tipo) {
+              @case ('titulo') {
+                <p class="text-base font-semibold text-stone-900" [class]="$first ? '' : 'mt-1 border-t border-madera/10 pt-3'">
+                  @if (b.icono) {<span aria-hidden="true">{{ b.icono }} </span>}<ng-container *ngTemplateOutlet="enLinea; context: { $implicit: b.texto }" />
+                </p>
+              }
+              @case ('subtitulo') {
+                <p class="-mb-1 font-semibold text-stone-900"><ng-container *ngTemplateOutlet="enLinea; context: { $implicit: b.texto }" /></p>
+              }
+              @case ('lista') {
+                @if (b.ordenada) {
+                  <ol class="list-decimal space-y-0.5 pl-5">
+                    @for (x of b.elementos; track $index) {
+                      <li><ng-container *ngTemplateOutlet="enLinea; context: { $implicit: x }" /></li>
+                    }
+                  </ol>
+                } @else {
+                  <ul class="list-disc space-y-0.5 pl-5">
+                    @for (x of b.elementos; track $index) {
+                      <li><ng-container *ngTemplateOutlet="enLinea; context: { $implicit: x }" /></li>
+                    }
+                  </ul>
+                }
+              }
+              @case ('haz') {
+                <p class="rounded-lg bg-emerald-50 px-2.5 py-1.5 text-emerald-950">
+                  <span class="mr-1 font-semibold">✅ Haz:</span><ng-container *ngTemplateOutlet="enLinea; context: { $implicit: b.texto }" />
+                </p>
+              }
+              @case ('evita') {
+                <p class="rounded-lg bg-amber-50 px-2.5 py-1.5 text-amber-950">
+                  <span class="mr-1 font-semibold">⚠️ Evita:</span><ng-container *ngTemplateOutlet="enLinea; context: { $implicit: b.texto }" />
+                </p>
+              }
+              @default {
+                <p><ng-container *ngTemplateOutlet="enLinea; context: { $implicit: b.texto }" /></p>
+              }
+            }
+          }
+        </div>
+        @if (e.fuentes?.length || e.basico) {
+          <p class="-mt-1.5 flex flex-wrap gap-1.5 self-start" aria-label="De dónde sale esta respuesta">
+            @for (fuente of e.fuentes; track fuente) {
+              <span class="rounded-full border border-madera/15 bg-crema px-2 py-0.5 text-sm text-stone-700">{{ etiquetaFuente[fuente] }}</span>
+            }
+            @if (e.basico) {
+              <span class="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-sm text-amber-900">⚙️ Modo básico</span>
+            }
+          </p>
+        }
+      } @else if (e.tipo === 'texto') {
         <p
           class="max-w-[90%] rounded-2xl px-3.5 py-2.5 text-[0.95rem] leading-relaxed"
           [class]="
@@ -179,6 +233,8 @@
         El asistente está pensando…
       </p>
     }
+    <!-- Texto de una línea con sus **negritas**: se reutiliza en todos los bloques. -->
+    <ng-template #enLinea let-texto>@for (t of trocear(texto); track $index) {@if (t.negrita) {<strong>{{ t.texto }}</strong>} @else {{{ t.texto }}}}</ng-template>
     <!-- Ancla para llevar a la vista el último mensaje. En móvil deja sitio al campo fijo. -->
     <div #final class="scroll-mb-44 lg:scroll-mb-0"></div>
   </div>

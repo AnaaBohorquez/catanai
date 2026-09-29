@@ -34,7 +34,8 @@ def test_normalizar_quita_acentos_y_signos():
 )
 def test_la_estrategia_se_reconoce_con_o_sin_acentos(pantalla, pregunta):
     texto = _responder(pantalla, pregunta)
-    assert "Plan:" in texto
+    assert "**Plan**" in texto
+    assert texto.startswith("### ")
     assert pantalla["opciones"][0]["explicacion"]["titulo"] in texto
 
 
@@ -43,7 +44,7 @@ def test_nombrar_otra_familia_explica_esa(pantalla):
     palabra = {"Expansión": "Expansión", "Ciudades y desarrollo": "Ciudades",
                "Puerto y conversión": "Puerto"}.get(otra, otra)
     texto = _responder(pantalla, f"¿Cómo juego {palabra}?")
-    assert texto.startswith(f"**{otra}**")
+    assert texto.startswith(f"### {otra}")
 
 
 @pytest.mark.parametrize(
@@ -70,3 +71,14 @@ def test_si_me_quitan_no_es_estrategia(pantalla):
 def test_por_defecto_ofrece_preguntas(pantalla):
     texto = _responder(pantalla, "blablá")
     assert all(s in texto for s in chat.SUGERENCIAS_BASICAS)
+
+
+def test_comparar_muestra_una_mini_tarjeta_por_opcion(pantalla):
+    texto = _responder(pantalla, "Compárala con la opción 2")
+    assert texto.count("### ") == 2
+    assert "Haz: " in texto and "Evita: " in texto
+
+
+def test_por_defecto_ofrece_las_preguntas_como_lista(pantalla):
+    texto = _responder(pantalla, "blablá")
+    assert all(f"- {s}" in texto for s in chat.SUGERENCIAS_BASICAS)

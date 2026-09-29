@@ -13,6 +13,8 @@ import {
   viewChild,
 } from '@angular/core';
 
+import { NgTemplateOutlet } from '@angular/common';
+
 import { ColonoApi } from '../api/colono-api';
 import type {
   EstadoColocacion,
@@ -31,6 +33,7 @@ import {
   RECURSOS,
   type Recurso,
 } from '../estilo-catan';
+import { type Bloque, bloquesDe } from './formato';
 
 /** Aviso de que las opciones cambiaron por las marcas del tablero. */
 export interface Actualizacion {
@@ -64,6 +67,8 @@ type Entrada =
       fuentes?: Fuente[];
       /** Respondida sin IA, con plantillas: entiende menos preguntas. */
       basico?: boolean;
+      /** El texto del asistente ya partido en bloques (título, listas, Haz/Evita). */
+      bloques?: Bloque[];
     }
   | { tipo: 'opciones'; opciones: Opcion[] };
 
@@ -145,6 +150,7 @@ const PRESENTACION =
  */
 @Component({
   selector: 'app-asistente',
+  imports: [NgTemplateOutlet],
   templateUrl: './asistente.html',
 })
 export class AsistenteComponent {
@@ -207,10 +213,10 @@ export class AsistenteComponent {
     const presentacion = respuesta?.momento === 'segunda' ? PRESENTACION_SEGUNDA : PRESENTACION;
     return respuesta
       ? [
-          { tipo: 'texto', rol: 'asistente', texto: presentacion },
+          { tipo: 'texto', rol: 'asistente', texto: presentacion, bloques: bloquesDe(presentacion) },
           { tipo: 'opciones', opciones: respuesta.opciones },
         ]
-      : [{ tipo: 'texto', rol: 'asistente', texto: BIENVENIDA }];
+      : [{ tipo: 'texto', rol: 'asistente', texto: BIENVENIDA, bloques: bloquesDe(BIENVENIDA) }];
   });
 
   /** Qué tarjeta tiene el detalle abierto; se cierra al cambiar las opciones. */
@@ -330,6 +336,9 @@ export class AsistenteComponent {
   }
 
   private agregar(entrada: Entrada): void {
+    if (entrada.tipo === 'texto' && entrada.rol === 'asistente' && !entrada.error) {
+      entrada = { ...entrada, bloques: bloquesDe(entrada.texto) };
+    }
     this.entradas.update((e) => [...e, entrada]);
     // Tras pintar el mensaje nuevo, se lleva a la vista (en móvil, por encima del
     // campo de texto fijo gracias a su scroll-margin).

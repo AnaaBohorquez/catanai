@@ -239,6 +239,12 @@ seguridad engaña: se fuerza a 0 y queda para revisión.
 - **El chat público tiene límites** (`services/consumo.py`): preguntas por IP, un
   presupuesto diario en US$ y una línea JSON por pregunta con tokens, latencia y
   costo.
+- **Las respuestas del chat tienen formato de tarjeta.** Un Markdown mínimo (`### título`,
+  `**Subtítulo**` en su línea, listas `- ` y `1. `, `Haz:`/`Evita:`) que
+  `asistente/formato.ts` convierte en bloques y Angular dibuja como las tarjetas. Nunca
+  se inserta HTML: lo que escriba el LLM no puede meter etiquetas en la página. El LLM
+  lo pide `INSTRUCCIONES` y las plantillas lo producen igual; `sin_estado()` quita el
+  eco de la línea "[Estado: …]".
 - **El chat habla de la opción que el usuario eligió.** `PeticionChat.elegida` (índice
   desde 0) dice cuál; el frontend manda también el tablero y las opciones ya
   calculadas. Toda cifra de una respuesta sale de esas opciones.

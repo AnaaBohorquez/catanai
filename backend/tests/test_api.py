@@ -103,14 +103,14 @@ def _preguntar(recomendacion: dict, pregunta: str, **extra) -> str:
 def test_el_chat_habla_de_la_opcion_elegida(recomendacion):
     titulo = recomendacion["opciones"][1]["explicacion"]["titulo"]
     texto = _preguntar(recomendacion, "¿Por qué esta opción?", elegida=1)
-    assert "opción 2" in texto
+    assert "opción 2" in texto.lower()
     assert titulo in texto
 
 
 def test_sin_elegida_el_chat_habla_de_la_opcion_1(recomendacion):
     titulo = recomendacion["opciones"][0]["explicacion"]["titulo"]
     texto = _preguntar(recomendacion, "¿Por qué esta opción?")
-    assert "opción 1" in texto
+    assert "opción 1" in texto.lower()
     assert titulo in texto
 
 
@@ -123,4 +123,4 @@ def test_la_comparacion_usa_las_cifras_del_modelo(recomendacion):
 
 def test_una_elegida_fuera_de_rango_no_rompe_el_chat(recomendacion):
     texto = _preguntar(recomendacion, "¿Qué construyo primero?", elegida=5)
-    assert "opción 3" in texto
+    assert "opción 3" in texto.lower()

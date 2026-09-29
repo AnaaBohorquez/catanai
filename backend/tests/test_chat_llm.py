@@ -311,3 +311,9 @@ def test_sin_clave_health_da_el_motivo():
     salud = cliente_http.get("/api/v1/health").json()
     assert salud["chat_con_llm"] is False
     assert salud["chat_motivo"] == "sin_clave"
+
+
+def test_el_eco_del_estado_se_quita_de_la_respuesta():
+    texto = "### Expansión\nCreces a lo ancho.\n(Estado: primera colocación; opción 1.)"
+    assert chat.sin_estado(texto) == "### Expansión\nCreces a lo ancho."
+    assert chat.sin_estado("[Estado: segunda colocación.]\nHola") == "Hola"

@@ -188,6 +188,8 @@ Así funciona una pregunta:
 
 Cada respuesta lleva etiquetas de dónde sale: **📊 Según el modelo**, **📖 Regla del juego** o **💡 Consejo general** (lo que no sale de ninguna herramienta).
 
+**Formato de las respuestas.** Las respuestas largas se ven como las tarjetas de recomendación: un título con el icono de la familia (🛤️ Expansión, 🏰 Ciudades, ⚓ Puerto), una frase de resumen, listas («Plan», «Por qué») y las líneas ✅ Haz y ⚠️ Evita. El modelo escribe un formato de texto sencillo y la pantalla lo convierte en esos bloques; las preguntas cortas (un costo, una probabilidad) se contestan en una o dos frases.
+
 **Modo básico.** Sin clave, con la clave rechazada por OpenAI o con el presupuesto del día agotado, responde con **plantillas**: reconocen la intención por palabras clave (estrategia, por qué, comparar, costos, probabilidad, rivales, reglas) sobre la pregunta sin acentos ni signos, y usan las mismas herramientas. Entienden menos preguntas, por eso la respuesta lleva la etiqueta **⚙️ Modo básico** y la cabecera del chat lo avisa.
 
 **Por qué así:** si el modelo de lenguaje tuviera libertad para "recomendar", podría contradecir a la regresión, que es la parte que está validada. Con herramientas, el LLM solo **redacta**; las cifras y las recomendaciones siguen saliendo del modelo.
