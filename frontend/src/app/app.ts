@@ -24,7 +24,7 @@ import {
 import { reducirFoto } from './foto/reducir';
 import { type Arista, destinosPosibles, girarPuertos } from './revision/costa';
 import { PanelRevisionComponent } from './revision/panel-revision';
-import { RECURSO_DE_TERRENO, pipsDe, sinNumero } from './revision/reparto';
+import { type Opciones, RECURSO_DE_TERRENO, pipsDe, reacomodar, sinNumero } from './revision/reparto';
 import { BarraMarcadoComponent } from './tablero/barra-marcado';
 import { bloqueados } from './tablero/geometria';
 import { TableroComponent } from './tablero/tablero';
@@ -124,6 +124,24 @@ export class App implements OnInit {
   protected readonly mensajeRevision = signal<string | null>(null);
   protected readonly avisosRevision = signal<string[] | null>(null);
   protected readonly confirmando = signal(false);
+  /** Lo que la foto consideró posible en cada hexágono: sugerencias y reacomodo. */
+  private readonly opcionesLectura = signal<Record<string, Opciones>>({});
+  /** Hexágonos que el usuario ya tocó: el reacomodo automático no los mueve. */
+  private readonly revisados = signal<ReadonlySet<string>>(new Set());
+  /** Qué cambió solo al reacomodar el reparto, para decírselo al usuario. */
+  protected readonly ajusteRevision = signal<string | null>(null);
+
+  /** Las opciones más probables del hexágono dudoso seleccionado: se eligen de un toque. */
+  protected readonly sugerenciasNumero = computed<number[]>(() => {
+    const id = this.hexSeleccionado();
+    if (!id || !this.numerosDudosos().has(id)) return [];
+    return (this.opcionesLectura()[id]?.numeros ?? []).slice(0, 3);
+  });
+  protected readonly sugerenciasTerreno = computed<Terreno[]>(() => {
+    const id = this.hexSeleccionado();
+    if (!id || !this.dudosos().has(id)) return [];
+    return (this.opcionesLectura()[id]?.terrenos ?? []).slice(0, 2);
+  });
 
   protected readonly hexagono = computed<Hexagono | null>(
     () => this.tablero()?.hexagonos.find((h) => h.id === this.hexSeleccionado()) ?? null,
@@ -226,6 +244,14 @@ export class App implements OnInit {
           .filter((d) => d.numero && d.confianza_numero < CONFIANZA_NUMERO)
           .map((d) => d.id);
         this.entrarEnRevision(lectura.tablero, new Set(dudosos), lectura.mensaje, new Set(numerosDudosos));
+        this.opcionesLectura.set(
+          Object.fromEntries(
+            lectura.detecciones.map((d) => [
+              d.id,
+              { numeros: d.opciones_numero ?? [], terrenos: d.opciones_terreno ?? [] },
+            ]),
+          ),
+        );
         this.leyendoFoto.set(false);
       },
       error: (e: HttpErrorResponse) => {
@@ -260,8 +286,14 @@ export class App implements OnInit {
     this.mensajeRevision.set(mensaje);
     this.avisosRevision.set(null);
     this.puertoSeleccionado.set(null);
-    // Se empieza por lo que más urge: un terreno dudoso o, si no, un hexágono sin número.
-    const primero = tablero.hexagonos.find((h) => dudosos.has(h.id)) ?? sinNumero(tablero.hexagonos)[0];
+    this.opcionesLectura.set({});
+    this.revisados.set(new Set());
+    this.ajusteRevision.set(null);
+    // Se empieza por lo que más urge: un terreno dudoso, un número dudoso o uno que falte.
+    const primero =
+      tablero.hexagonos.find((h) => dudosos.has(h.id)) ??
+      tablero.hexagonos.find((h) => numerosDudosos.has(h.id)) ??
+      sinNumero(tablero.hexagonos)[0];
     this.hexSeleccionado.set(primero?.id ?? null);
   }
 
@@ -282,6 +314,7 @@ export class App implements OnInit {
     // Corregido a mano: deja de ser dudoso.
     const id = this.hexSeleccionado();
     if (id) this.dudosos.update((d) => new Set([...d].filter((x) => x !== id)));
+    if (id) this.reacomodarTras(id);
   }
 
   protected cambiarNumero(numero: number | null): void {
@@ -291,6 +324,7 @@ export class App implements OnInit {
     this.editarHexagono((h) => ({ ...h, numero, pips: pipsDe(numero) }));
     // Revisado a mano (aunque se confirme el mismo número): deja de ser dudoso.
     if (id) this.numerosDudosos.update((d) => new Set([...d].filter((x) => x !== id)));
+    if (id) this.reacomodarTras(id);
     // Al poner un número nuevo o revisar uno dudoso se pasa al siguiente pendiente:
     // la revisión se hace tocando solo números, sin volver al tablero.
     if (numero && (!teniaNumero || eraDudoso)) this.siguienteSinNumero();
@@ -307,6 +341,29 @@ export class App implements OnInit {
     const actual = t.hexagonos.findIndex((h) => h.id === this.hexSeleccionado());
     const despues = pendientes.find((h) => t.hexagonos.indexOf(h) > actual) ?? pendientes[0];
     if (despues) this.hexSeleccionado.set(despues.id);
+  }
+
+  /** Acepta como correctas todas las lecturas que quedaban dudosas. */
+  protected aceptarTodo(): void {
+    this.dudosos.set(new Set());
+    this.numerosDudosos.set(new Set());
+    this.ajusteRevision.set(null);
+    this.mensajeRevision.set('Listo. Revisa los puertos contra tu marco y confirma el tablero.');
+  }
+
+  /**
+   * Tras una corrección, cuadra el reparto moviendo la lectura con la que se había
+   * confundido (ver `reacomodar`), y dice qué cambió.
+   */
+  private reacomodarTras(id: string): void {
+    this.revisados.update((r) => new Set([...r, id]));
+    const t = this.tablero();
+    if (!t) return;
+    const { hexagonos, cambios } = reacomodar(t.hexagonos, id, this.revisados(), this.opcionesLectura());
+    this.tablero.set({ ...t, hexagonos });
+    this.ajusteRevision.set(
+      cambios.length ? `Para que cuadre el reparto también cambié: ${cambios.join(', ')}.` : null,
+    );
   }
 
   private editarHexagono(cambio: (h: Hexagono) => Hexagono): void {
@@ -381,6 +438,9 @@ export class App implements OnInit {
     this.mensajeRevision.set(null);
     this.dudosos.set(new Set());
     this.numerosDudosos.set(new Set());
+    this.opcionesLectura.set({});
+    this.revisados.set(new Set());
+    this.ajusteRevision.set(null);
     this.validado = null;
     this.respaldo = null;
   }

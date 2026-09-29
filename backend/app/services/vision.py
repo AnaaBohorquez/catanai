@@ -25,11 +25,13 @@ La imagen solo se procesa en memoria: no se guarda en disco ni en ningún regist
 
 from __future__ import annotations
 
+from collections import Counter
+
 import cv2
 import numpy as np
 
 from app.domain.puertos import plantilla_de_puertos
-from app.domain.tablero import coordenadas_hexagonos
+from app.domain.tablero import TERRENOS, coordenadas_hexagonos
 from app.schemas.api import HexagonoDetectado, RespuestaVision, Tablero
 from app.services import vision_fichas as fichas
 from app.services.serializers import (
@@ -79,12 +81,10 @@ def leer_tablero(imagen_bytes: bytes) -> RespuestaVision:
     """
     imagen = _decodificar(imagen_bytes)
     hsv = cv2.cvtColor(imagen, cv2.COLOR_BGR2HSV)
-    seguras, radio = fichas.detectar_fichas(imagen, hsv)
-    red = fichas.ajustar_red(seguras, radio, hsv)
+    red = fichas.encontrar_red(imagen, hsv)
 
     if red is not None:
-        detecciones = _leer_con_fichas(imagen, hsv, red)
-        avisos_lectura = []
+        detecciones, avisos_lectura = _leer_con_fichas(imagen, hsv, red)
     else:
         detecciones = _leer_por_borde(imagen)
         avisos_lectura = [
@@ -116,33 +116,58 @@ def leer_tablero(imagen_bytes: bytes) -> RespuestaVision:
     )
 
 
-def _leer_con_fichas(imagen: np.ndarray, hsv: np.ndarray, red: fichas.Red) -> list:
-    """Terrenos y números sobre la red ajustada con las fichas."""
+def _leer_con_fichas(
+    imagen: np.ndarray, hsv: np.ndarray, red: fichas.Red
+) -> tuple[list, list[str]]:
+    """Terrenos y números sobre la red ajustada con las fichas, y avisos de lectura."""
     coords = coordenadas_hexagonos()
     centros = {c: red.centro(c) for c in coords}
+    avisos = []
 
-    # El desierto es el único hexágono sin ficha: el centro sin número (sin tinta).
+    # El desierto es el hexágono sin número (sin tinta en el centro) y de arena. Se
+    # usan las dos pistas: un número de trazo fino, como el 2, tiene poca tinta, y
+    # solo con ella se confundía con el desierto.
     presencia = {c: fichas.tinta_central(hsv, *centros[c], red.radio_ficha) for c in coords}
-    desierto = min(presencia, key=presencia.get)
+    tinta_max = max(max(presencia.values()), 1e-6)
+    arena = {c: _arena(fichas.pixeles_de_terreno(imagen, red, c)) for c in coords}
+    desierto = max(coords, key=lambda c: 0.8 * arena[c] - presencia[c] / tinta_max)
     resto = sorted(presencia[c] for c in coords if c != desierto)
     # Confianza: qué tan claro es que ahí no hay ficha y en los demás sí.
     separacion = (resto[0] - presencia[desierto]) / max(resto[0], 1e-6)
     confianza_desierto = float(np.clip(separacion, 0, 1))
+    if presencia[desierto] >= 0.5 * float(np.median(resto)):
+        avisos.append(
+            "El desierto parece tener una ficha numérica; en el juego base no lleva "
+            "número. Revisa el desierto y los números."
+        )
 
-    terrenos: dict[tuple[int, int], tuple[str, float]] = {}
-    for c in coords:
-        if c == desierto:
-            terrenos[c] = ("desierto", confianza_desierto)
-            continue
-        pixeles = fichas.pixeles_de_terreno(imagen, red, c).reshape(-1, 1, 3)
-        # Tiene ficha, así que no es el desierto aunque el color se le parezca.
-        terrenos[c] = _clasificar_terreno(pixeles, excluir={"desierto"})
+    # Los otros 18 se reparten por color respetando el juego base (4 bosques, 4
+    # pastos, 4 campos, 3 colinas, 3 montañas). Tienen ficha, así que no son desierto
+    # aunque el color se le parezca.
+    puntajes = {
+        c: _puntajes_de_terreno(fichas.pixeles_de_terreno(imagen, red, c), excluir={"desierto"})
+        for c in coords
+        if c != desierto
+    }
+    reparto = Counter(TERRENOS)
+    del reparto["desierto"]
+    terrenos = {
+        c: (terreno, confianza_de_terreno(margen))
+        for c, (terreno, margen) in fichas.asignar_con_reparto(puntajes, reparto).items()
+    }
+    terrenos[desierto] = ("desierto", confianza_desierto)
+    # Qué otros terrenos serían posibles, para ofrecerlos al revisar y para que la
+    # interfaz reacomode el reparto cuando el usuario corrige uno.
+    colores = {
+        c: _puntajes_de_terreno(fichas.pixeles_de_terreno(imagen, red, c)) for c in coords
+    }
+    colores[desierto]["desierto"] = 2.0
 
+    con_ficha = {c: centros[c] for c in coords if c != desierto}
+    giros = fichas.giros_de_fichas(imagen, con_ficha, red.radio_ficha)
     puntuaciones, estabilidad = {}, {}
-    for c in coords:
-        if c == desierto:
-            continue
-        puntos, estable = fichas.leer_ficha(imagen, *centros[c], red.radio_ficha)
+    for c in con_ficha:
+        puntos, estable = fichas.leer_ficha(imagen, *centros[c], red.radio_ficha, giros[c])
         if puntos:
             puntuaciones[c], estabilidad[c] = puntos, estable
     numeros = fichas.leer_numeros(puntuaciones)
@@ -159,8 +184,33 @@ def _leer_con_fichas(imagen: np.ndarray, hsv: np.ndarray, red: fichas.Red) -> li
             numero=numero,
             confianza_terreno=round(terrenos[c][1], 2),
             confianza_numero=round(fichas.confianza_de_margen(margen), 2) if numero else 0.0,
+            opciones_numero=_ordenadas(puntuaciones.get(c, {})),
+            opciones_terreno=_ordenadas(colores[c]),
         ))
-    return detecciones
+    return detecciones, avisos
+
+
+def _ordenadas(puntos: dict) -> list:
+    """Las etiquetas de la más a la menos probable."""
+    return sorted(puntos, key=lambda k: -puntos[k])
+
+
+def _arena(pixeles: np.ndarray) -> float:
+    """
+    Qué tanto parece arena del desierto el color típico (mediana) de un hexágono, de
+    0 a 1.
+
+    La arena es amarilla como los campos pero menos saturada: medido en las dos fotos
+    de ejemplo, arena s ≈ 130–150 y campos s ≈ 175. Las montañas tienen tono parecido
+    pero s < 60, por eso se exige s ≥ 90.
+    """
+    if len(pixeles) == 0:
+        return 0.0
+    hsv = cv2.cvtColor(pixeles.reshape(1, -1, 3).astype(np.uint8), cv2.COLOR_BGR2HSV)
+    h, s, v = np.median(hsv.reshape(-1, 3), axis=0)
+    if not (12 <= h <= 32 and s >= 90 and v >= 150):
+        return 0.0
+    return float(np.clip((165 - s) / 40, 0, 1))
 
 
 def _leer_por_borde(imagen: np.ndarray) -> list:
@@ -298,21 +348,23 @@ def _parche_del_hexagono(imagen: np.ndarray, coord: tuple[int, int]) -> np.ndarr
     return recorte[mascara]
 
 
-def _clasificar_terreno(parche: np.ndarray, excluir: set | None = None) -> tuple[str, float]:
-    """
-    Decide el terreno de un parche por su color.
+#: Margen de puntaje de terreno (proporción de píxeles) que se considera seguro al
+#: repartir los terrenos: con él la confianza llega a 1.
+MARGEN_TERRENO_SEGURO = 0.3
 
-    Devuelve el nombre y una confianza entre 0 y 1: qué proporción de los píxeles
-    del parche cae dentro del rango del terreno ganador. Una confianza baja
-    significa que la interfaz debe pedir revisión, no que la lectura sea inútil.
-    """
+
+def confianza_de_terreno(margen: float) -> float:
+    """Margen del reparto de terrenos → confianza 0–1 (0.55 es la frontera de revisión)."""
+    return float(np.clip(margen / MARGEN_TERRENO_SEGURO, 0.0, 1.0))
+
+
+def _puntajes_de_terreno(parche: np.ndarray, excluir: set | None = None) -> dict[str, float]:
+    """Qué proporción de los píxeles del parche cae en el rango de cada terreno."""
     pixeles = parche.reshape(-1, 3).astype(np.uint8)
     if len(pixeles) < 10:
-        return "desierto", 0.0
-
+        return {}
     hsv = cv2.cvtColor(pixeles.reshape(1, -1, 3), cv2.COLOR_BGR2HSV).reshape(-1, 3)
     h, s, v = hsv[:, 0], hsv[:, 1], hsv[:, 2]
-
     puntajes = {}
     for terreno, rango in RANGOS.items():
         if excluir and terreno in excluir:
@@ -323,6 +375,21 @@ def _clasificar_terreno(parche: np.ndarray, excluir: set | None = None) -> tuple
             & (v >= rango["v"][0]) & (v <= rango["v"][1])
         )
         puntajes[terreno] = float(dentro.mean())
+    return puntajes
+
+
+def _clasificar_terreno(parche: np.ndarray, excluir: set | None = None) -> tuple[str, float]:
+    """
+    Decide el terreno de un parche por su color, sin mirar el reparto (método del
+    borde).
+
+    Devuelve el nombre y una confianza entre 0 y 1: qué proporción de los píxeles
+    del parche cae dentro del rango del terreno ganador. Una confianza baja
+    significa que la interfaz debe pedir revisión, no que la lectura sea inútil.
+    """
+    puntajes = _puntajes_de_terreno(parche, excluir)
+    if not puntajes:
+        return "desierto", 0.0
 
     ganador = max(puntajes, key=puntajes.get)
     mejor = puntajes[ganador]

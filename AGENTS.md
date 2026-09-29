@@ -177,6 +177,30 @@ clave). Parecía que "el chat responde mal". Ahora `consumo.clave` recuerda el r
 básico». Las plantillas normalizan la pregunta (sin acentos ni signos) y reconocen
 estrategia, costos, probabilidades y reglas.
 
+
+### 5.16 El tamaño de las fichas cambia con cada foto
+Con un solo rango de radios, Hough encontraba primero círculos falsos grandes (sobre
+la arena o los campos), tomaba su radio como el típico y descartaba las fichas
+reales: 0 fichas y ningún número en `logs/ejemplo-catan-2.png`. Ahora se prueban
+tres bandas de radio (`BANDAS_DE_RADIO`) y se queda la red que explica más fichas;
+un círculo solo cuenta si tiene tinta en el centro.
+
+### 5.17 La arena del desierto está saturada; el 2 casi no tiene tinta
+El rango de color del desierto (s < 80) no coincidía con la arena real (s ≈ 130–150)
+y el desierto se buscaba solo por "menos tinta": un 2, de trazo fino, ganaba. Ahora
+se combinan tinta y color típico (`_arena`, por mediana).
+
+### 5.18 Las fichas volteadas cambian las pistas del 6/8 y de los pips
+La abertura del 6 y la franja de los pips suponen la ficha derecha. Cada ficha se
+endereza con la dirección número→pips (`orientacion_de_ficha`), pero esa medida es
+ruidosa con pips de 1–2 px: se usa el giro del grupo mayor de fichas y solo las que
+se apartan más de 40° usan el suyo (`giros_de_fichas`).
+
+### 5.19 Una etiqueta asignada por descarte no es una lectura
+La asignación con reparto (`asignar_con_reparto`, algoritmo húngaro) mide la
+seguridad de cada ficha como cuánto empeora el total si se le prohíbe su etiqueta.
+Pero si la ficha misma se leía como otra cosa (un 6 que recibe el 8 "sobrante"), esa
+seguridad engaña: se fuerza a 0 y queda para revisión.
 ---
 
 ## 6. Arquitectura
@@ -254,10 +278,10 @@ estrategia, costos, probabilidades y reglas.
 | Notebooks de EDA y modelado | listos |
 | Backend: API, esquemas, tests | listo y probado en local |
 | Dockerfile | desactualizado: no copia `modelos/` (el despliegue no lo usa) |
-| Visión: terreno por color | red ajustada con las fichas + anillo de color; el desierto es el hexágono sin tinta. Foto de referencia (539 px): **19/19**, también recomprimida en JPEG 70–95. Rangos de color **sin calibrar con fotos de celular** |
-| Visión: lectura de números | rojo + dígitos + agujeros + abertura del 6/8 + pips, promediados sobre 7 recortes, asignados respetando el reparto. Referencia: **18/18** (también en JPEG 70–95) y **0 errores con confianza alta**; 12–13 quedan marcados para revisión por la baja resolución. Sin probar con fotos de celular |
+| Visión: terreno por color | red ajustada con las fichas (3 bandas de tamaño) + anillo de color, repartido 4-4-4-3-3 con el algoritmo húngaro; el desierto por tinta y color de arena. **19/19** en las dos fotos de ejemplo, también giradas 90°, 180°, 25° y −40°. Rangos de color **sin calibrar con fotos de celular** |
+| Visión: lectura de números | fichas enderezadas por sus pips; rojo + dígitos + agujeros + abertura del 6/8 + pips, sobre 7 recortes; reparto con el algoritmo húngaro. Referencia: **18/18** en todos los giros y **0 errores con confianza alta**; ~10 quedan para revisión (pips de 2 px). `ejemplo-catan-2.png` (fichas de 12 px, tablero no estándar: desierto con 10 y tres 9): 7–11 de 19. Sin probar con fotos de celular |
 | Visión: puertos | plantilla del marco, editable en la revisión |
-| Revisión del tablero | lista: corregir terreno y número por hexágono, contador contra el reparto, girar/mover/cambiar puertos, confirmar con `/tableros/validar` (que ahora también revisa el reparto de terrenos y de fichas) |
+| Revisión del tablero | lista: empieza en el primer dudoso; opciones más probables de un toque; al corregir, `reacomodar()` mueve sola la ficha con la que se confundió y lo avisa; «Todo se ve bien» acepta lo dudoso; contador contra el reparto; girar/mover/cambiar puertos; confirmar con `/tableros/validar` |
 | Foto | subir o tomar con la cámara del celular (`capture`); se reduce a 1600 px en el navegador y no se guarda en el backend |
 | Chat: plantillas y LLM | LLM con herramientas, verificador, límites y registro; probado en vivo con `gpt-5-mini` (≈ US$0.001 por pregunta, 7 s). Clave rechazada detectada y avisada (§5.15). Plantillas normalizadas con intención de estrategia. Falta correr `scripts/evaluar_chat.py` con las 5 preguntas de estrategia |
 | Reglas verificadas | borrador de 17 entradas en `domain/reglas.md`, **ninguna verificada**: hasta entonces el chat no cita reglas. `test_la_regla_de_costos_coincide_con_la_tabla_del_codigo` mantiene la de costos igual a `COSTOS` |

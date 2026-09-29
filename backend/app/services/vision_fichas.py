@@ -23,6 +23,7 @@ from dataclasses import dataclass
 
 import cv2
 import numpy as np
+from scipy.optimize import linear_sum_assignment
 
 from app.domain.tablero import FICHAS, PIPS, coordenadas_hexagonos
 
@@ -37,6 +38,16 @@ MARGEN_SEGURO = 1.5
 
 #: Lado del recorte de cada ficha, en píxeles: se amplía para contar pips pequeños.
 LADO_FICHA = 200
+
+#: Radios de ficha que se prueban, como fracción del lado mayor de la foto. Con un
+#: solo rango amplio, círculos falsos grandes (sobre la arena o los campos) fijaban
+#: el radio típico y se descartaban las fichas reales, que en una foto de todo el
+#: tablero miden en torno al 2.5 % del lado.
+BANDAS_DE_RADIO = [(0.015, 0.03), (0.025, 0.045), (0.04, 0.07)]
+
+#: Tinta mínima en el centro para aceptar un círculo como ficha: toda ficha tiene
+#: número; un círculo de arena o de trigo, no.
+TINTA_MINIMA = 0.02
 
 
 # --- 1. Fichas seguras ----------------------------------------------------------------
@@ -81,35 +92,64 @@ def tinta_central(hsv: np.ndarray, x: float, y: float, r: float) -> float:
     return float(((v <= 100) | rojo).mean())
 
 
-def detectar_fichas(imagen: np.ndarray, hsv: np.ndarray) -> tuple[np.ndarray, float]:
+def encontrar_red(imagen: np.ndarray, hsv: np.ndarray) -> Red | None:
     """
-    Centros de las fichas seguras y su radio típico.
+    La red hexagonal de la foto, probando cada banda de radio de ficha.
+
+    No se sabe de antemano a qué distancia se tomó la foto; se queda la banda cuya
+    red explica más fichas.
+    """
+    mejor: Red | None = None
+    for banda in BANDAS_DE_RADIO:
+        seguras, radio = detectar_fichas(imagen, hsv, banda)
+        red = ajustar_red(seguras, radio, hsv)
+        if red is not None and (mejor is None or red.fichas > mejor.fichas):
+            mejor = red
+    return mejor
+
+
+def detectar_fichas(
+    imagen: np.ndarray, hsv: np.ndarray, banda: tuple[float, float] = BANDAS_DE_RADIO[1]
+) -> tuple[np.ndarray, float]:
+    """
+    Centros de las fichas seguras y su radio típico, buscando radios dentro de
+    ``banda`` (fracciones del lado mayor de la foto).
 
     Hough encuentra también círculos falsos (piedras, barcos, bordes); se quedan los
-    de anillo crema, radio parecido al de las mejores y sin solaparse.
+    de anillo crema con tinta en el centro, radio parecido al de las mejores y sin
+    solaparse.
     """
     alto, ancho = imagen.shape[:2]
     lado = max(alto, ancho)
+    r_min, r_max = int(lado * banda[0]), int(lado * banda[1])
     gris = cv2.GaussianBlur(cv2.cvtColor(imagen, cv2.COLOR_BGR2GRAY), (5, 5), 1.2)
     candidatos = cv2.HoughCircles(
         gris,
         cv2.HOUGH_GRADIENT,
         dp=1.2,
-        minDist=lado * 0.05,
+        minDist=3 * r_min,
         param1=100,
         param2=14,
-        minRadius=int(lado * 0.02),
-        maxRadius=int(lado * 0.07),
+        minRadius=r_min,
+        maxRadius=r_max,
     )
     if candidatos is None:
         return np.empty((0, 2)), 0.0
     puntuados = sorted(
-        ((crema(hsv, x, y, r), x, y, r) for x, y, r in candidatos[0]), reverse=True
+        (
+            (crema(hsv, x, y, r), x, y, r)
+            for x, y, r in candidatos[0]
+            if tinta_central(hsv, x, y, r) > TINTA_MINIMA
+        ),
+        reverse=True,
     )
+    puntuados = [p for p in puntuados if p[0] >= 0.6]
+    if not puntuados:
+        return np.empty((0, 2)), 0.0
     r_tipico = float(np.median([r for _, _, _, r in puntuados[:8]]))
     seguras: list[tuple[float, float]] = []
-    for c, x, y, r in puntuados:
-        if c < 0.6 or abs(r - r_tipico) > 0.25 * r_tipico:
+    for _, x, y, r in puntuados:
+        if abs(r - r_tipico) > 0.25 * r_tipico:
             continue
         if all(math.hypot(x - a, y - b) > 1.5 * r_tipico for a, b in seguras):
             seguras.append((float(x), float(y)))
@@ -324,11 +364,23 @@ class Rasgos:
     abertura: float | None = None
 
 
-def rasgos_de_ficha(imagen: np.ndarray, x: float, y: float, r: float) -> Rasgos | None:
-    """
-    Lo que se ve en una ficha, sin intentar reconocer la forma de cada dígito:
-    si la tinta es roja, cuántos dígitos, cuántos agujeros y cuántos pips.
-    """
+#: Giros que se prueban cuando no se puede saber cómo está la ficha.
+GIROS_A_PROBAR = (0.0, 90.0, 180.0, 270.0)
+
+#: Una ficha cuyo giro se aparta del de la mayoría más que esto está volteada de
+#: verdad; si se aparta menos, la diferencia es ruido al contar pips de 1–2 px.
+DESVIO_PROPIO = 40.0
+
+#: Cuánto pueden diferir dos giros para contarse en el mismo grupo al buscar el giro
+#: de la mayoría. Ambos valores se eligieron probando varias combinaciones sobre las
+#: dos fotos de ejemplo (giradas 0, 90, 180, 25 y −40 grados) y tableros sintéticos.
+ANCHO_GRUPO = 30.0
+
+
+def _recorte(
+    imagen: np.ndarray, x: float, y: float, r: float, giro: float = 0.0
+) -> np.ndarray | None:
+    """La ficha ampliada a ``LADO_FICHA`` y girada ``giro`` grados (antihorario)."""
     t = int(r * 1.05)
     x0, y0 = int(x) - t, int(y) - t
     if x0 < 0 or y0 < 0 or x0 + 2 * t > imagen.shape[1] or y0 + 2 * t > imagen.shape[0]:
@@ -338,6 +390,99 @@ def rasgos_de_ficha(imagen: np.ndarray, x: float, y: float, r: float) -> Rasgos 
         (LADO_FICHA, LADO_FICHA),
         interpolation=cv2.INTER_CUBIC,
     )
+    if giro:
+        medio = LADO_FICHA / 2
+        matriz = cv2.getRotationMatrix2D((medio, medio), giro, 1.0)
+        recorte = cv2.warpAffine(
+            recorte, matriz, (LADO_FICHA, LADO_FICHA), borderMode=cv2.BORDER_REPLICATE
+        )
+    return recorte
+
+
+def orientacion_de_ficha(imagen: np.ndarray, x: float, y: float, r: float) -> float | None:
+    """
+    Cuánto girar la ficha para que quede derecha, o None si no se puede saber.
+
+    Los pips siempre van debajo del número: la dirección del número a los pips es
+    "abajo". Así se leen igual una foto girada y una ficha puesta de lado en la mesa.
+    """
+    recorte = _recorte(imagen, x, y, r)
+    if recorte is None:
+        return None
+    h, s, v = cv2.split(cv2.cvtColor(recorte, cv2.COLOR_BGR2HSV))
+    medio = LADO_FICHA // 2
+    dentro = np.zeros((LADO_FICHA, LADO_FICHA), np.uint8)
+    cv2.circle(dentro, (medio, medio), int(LADO_FICHA * 0.42), 255, -1)
+    tinta = ((((h <= 12) | (h >= 165)) & (s >= 55) & (v >= 80)) | (v <= 130)) & (dentro > 0)
+    n, _, stats, centros = cv2.connectedComponentsWithStats(tinta.astype(np.uint8), 8)
+    lado_min, area_min = LADO_FICHA * 0.22, LADO_FICHA * LADO_FICHA * 0.006
+    grandes = [
+        k for k in range(1, n)
+        if max(stats[k, cv2.CC_STAT_WIDTH], stats[k, cv2.CC_STAT_HEIGHT]) >= lado_min
+        and stats[k, cv2.CC_STAT_AREA] >= area_min
+    ]
+    pips = [
+        k for k in range(1, n)
+        if k not in grandes and 4 <= stats[k, cv2.CC_STAT_AREA] <= 200
+    ]
+    if not grandes or not pips:
+        return None
+    numero = np.average(
+        centros[grandes], axis=0, weights=stats[grandes, cv2.CC_STAT_AREA]
+    )
+    abajo = centros[pips].mean(axis=0) - numero
+    if np.linalg.norm(abajo) < LADO_FICHA * 0.1:
+        return None
+    # En la imagen el eje y crece hacia abajo: "abajo" es el ángulo 90°. Girar la
+    # ficha θ grados en sentido antihorario resta θ a ese ángulo.
+    return math.degrees(math.atan2(abajo[1], abajo[0])) - 90.0
+
+
+def _diferencia_angular(a: float, b: float) -> float:
+    return abs((a - b + 180.0) % 360.0 - 180.0)
+
+
+def giros_de_fichas(
+    imagen: np.ndarray, centros: dict, r: float
+) -> dict:
+    """
+    Cuánto enderezar cada ficha: centro → grados, o None si hay que probar giros.
+
+    La medida de una sola ficha es ruidosa (sus pips miden 1–2 px), pero en una foto
+    la mayoría de las fichas comparten el giro de la cámara. Se usa ese giro común,
+    salvo en las fichas que se apartan claramente de él: esas están puestas al revés
+    o de lado en la mesa y se enderezan con su propia medida.
+    """
+    propios = {c: orientacion_de_ficha(imagen, x, y, r) for c, (x, y) in centros.items()}
+    medidos = [g for g in propios.values() if g is not None]
+    if len(medidos) < 3:
+        return propios
+    # El giro común es el del grupo más grande de fichas con giros parecidos, no el
+    # promedio de todas: si la mitad está de lado, el promedio no sirve a ninguna.
+    grupo = max(
+        ([g for g in medidos if _diferencia_angular(g, centro) <= ANCHO_GRUPO]
+         for centro in medidos),
+        key=len,
+    )
+    radianes = np.radians(grupo)
+    comun = math.degrees(math.atan2(np.sin(radianes).mean(), np.cos(radianes).mean()))
+    return {
+        c: g if g is not None and _diferencia_angular(g, comun) > DESVIO_PROPIO else comun
+        for c, g in propios.items()
+    }
+
+
+def rasgos_de_ficha(
+    imagen: np.ndarray, x: float, y: float, r: float, giro: float = 0.0
+) -> Rasgos | None:
+    """
+    Lo que se ve en una ficha, sin intentar reconocer la forma de cada dígito:
+    si la tinta es roja, cuántos dígitos, cuántos agujeros y cuántos pips. ``giro``
+    endereza la ficha antes de medir (ver ``orientacion_de_ficha``).
+    """
+    recorte = _recorte(imagen, x, y, r, giro)
+    if recorte is None:
+        return None
     h, s, v = cv2.split(cv2.cvtColor(recorte, cv2.COLOR_BGR2HSV))
     medio = LADO_FICHA // 2
     dentro = np.zeros((LADO_FICHA, LADO_FICHA), np.uint8)
@@ -423,16 +568,36 @@ def puntuar(rasgos: Rasgos) -> dict[int, float]:
 
 
 def leer_ficha(
-    imagen: np.ndarray, x: float, y: float, r: float
+    imagen: np.ndarray, x: float, y: float, r: float, giro: float | None = None
 ) -> tuple[dict[int, float], float]:
     """
     Puntuación de una ficha promediada sobre recortes ligeramente distintos, y su
     estabilidad: qué fracción de esos recortes da el mismo número ganador.
+
+    ``giro`` endereza la ficha (ver ``giros_de_fichas``); si es None se prueban los
+    cuatro giros rectos y se queda el que da la lectura más clara.
     """
+    if giro is not None:
+        return _leer_con_giro(imagen, x, y, r, giro)
+    lecturas = [_leer_con_giro(imagen, x, y, r, g) for g in GIROS_A_PROBAR]
+    return max(lecturas, key=lambda lectura: _claridad(lectura[0]))
+
+
+def _claridad(puntos: dict[int, float]) -> float:
+    """Ventaja del mejor número sobre el segundo."""
+    if len(puntos) < 2:
+        return -math.inf
+    primero, segundo = sorted(puntos.values(), reverse=True)[:2]
+    return primero - segundo
+
+
+def _leer_con_giro(
+    imagen: np.ndarray, x: float, y: float, r: float, giro: float
+) -> tuple[dict[int, float], float]:
     suma: dict[int, float] = {}
     ganadores = []
     for dx, dy, escala in PERTURBACIONES:
-        rasgos = rasgos_de_ficha(imagen, x + dx, y + dy, r * escala)
+        rasgos = rasgos_de_ficha(imagen, x + dx, y + dy, r * escala, giro)
         if rasgos is None:
             continue
         puntos = puntuar(rasgos)
@@ -446,13 +611,63 @@ def leer_ficha(
     return promedio, sum(g == mejor for g in ganadores) / len(ganadores)
 
 
+def asignar_con_reparto(
+    puntuaciones: dict, reparto: Counter
+) -> dict:
+    """
+    La asignación de etiquetas (números o terrenos) que más puntúa en total
+    respetando el reparto, y la seguridad de cada una.
+
+    ``puntuaciones`` va de clave (coordenada) a {etiqueta: puntuación}; ``reparto``
+    dice cuántas veces puede usarse cada etiqueta.
+
+    Se resuelve con el algoritmo húngaro: cada copia del reparto es una "plaza" y
+    cada ficha ocupa una. La seguridad de una ficha es cuánto baja la puntuación
+    total si se le prohíbe su etiqueta y se reparte todo de nuevo. Así una ficha que
+    por sí sola duda entre 3 y 4 queda segura si los dos 4 ya están claros en otras
+    fichas, y dudosa si no.
+
+    Returns
+    -------
+    dict
+        Clave → (etiqueta, margen). Un margen pequeño pide revisión.
+    """
+    claves = list(puntuaciones)
+    plazas = [etiqueta for etiqueta, k in reparto.items() for _ in range(k)]
+    if not claves or len(claves) > len(plazas):
+        return {}
+    # Una etiqueta sin puntuación cuesta mucho, pero no infinito: así siempre hay
+    # asignación aunque una ficha no se haya podido leer bien.
+    costo = np.array(
+        [[-puntuaciones[c].get(etiqueta, -10.0) for etiqueta in plazas] for c in claves]
+    )
+    filas, columnas = linear_sum_assignment(costo)
+    total = costo[filas, columnas].sum()
+
+    salida = {}
+    for i, j in zip(filas, columnas, strict=True):
+        etiqueta = plazas[j]
+        prohibido = costo.copy()
+        prohibido[i, [k for k, e in enumerate(plazas) if e == etiqueta]] = 1e6
+        f2, c2 = linear_sum_assignment(prohibido)
+        margen = float(prohibido[f2, c2].sum() - total)
+        # Si la ficha no se lee a sí misma como esa etiqueta, la etiqueta es una
+        # deducción del reparto, no una lectura: nunca es segura. Sin esta regla, una
+        # ficha que parecía claramente un 6 recibía el 8 "sobrante" con margen alto.
+        propio = max(puntuaciones[claves[i]].values(), default=-10.0)
+        suyo = puntuaciones[claves[i]].get(etiqueta, -10.0)
+        if suyo < propio:
+            margen = min(margen, suyo - propio)
+        salida[claves[i]] = (etiqueta, max(0.0, margen))
+    return salida
+
+
 def leer_numeros(
     puntuaciones: dict[tuple[int, int], dict[int, float]],
 ) -> dict[tuple[int, int], tuple[int, float]]:
     """
     Asigna un número a cada ficha respetando el reparto del juego base (una ficha de
-    2 y de 12, dos de cada uno de los demás). Se empieza por la ficha más segura: la
-    de mayor margen entre su mejor número disponible y el segundo.
+    2 y de 12, dos de cada uno de los demás).
 
     Returns
     -------
@@ -460,32 +675,7 @@ def leer_numeros(
         Coordenada → (número, margen). Un margen menor que ``MARGEN_SEGURO`` pide
         revisión manual.
     """
-    quedan = Counter(FICHAS)
-    pendientes = set(puntuaciones)
-    salida: dict[tuple[int, int], tuple[int, float]] = {}
-
-    def margen(coord) -> float:
-        valores = sorted(
-            (p for n, p in puntuaciones[coord].items() if quedan[n] > 0), reverse=True
-        )
-        if not valores:
-            return 0.0
-        return valores[0] - (valores[1] if len(valores) > 1 else valores[0] - 10)
-
-    while pendientes:
-        coord = max(pendientes, key=margen)
-        disponibles = [n for n in puntuaciones[coord] if quedan[n] > 0]
-        if not disponibles:
-            break
-        numero = max(disponibles, key=lambda n: puntuaciones[coord][n])
-        # La confianza se mide contra TODOS los números, no solo los que quedan: si la
-        # ficha parecía un 2 pero el único 2 ya se asignó, el número que recibe es una
-        # deducción del reparto, no una lectura, y debe quedar para revisión.
-        rival = max(p for n, p in puntuaciones[coord].items() if n != numero)
-        salida[coord] = (numero, max(0.0, puntuaciones[coord][numero] - rival))
-        quedan[numero] -= 1
-        pendientes.remove(coord)
-    return salida
+    return asignar_con_reparto(puntuaciones, Counter(FICHAS))
 
 
 def confianza_de_margen(margen: float) -> float:

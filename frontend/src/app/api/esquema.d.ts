@@ -250,6 +250,18 @@ export interface components {
             confianza_terreno: number;
             /** Confianza Numero */
             confianza_numero: number;
+            /**
+             * Opciones Numero
+             * @description Números posibles, del más al menos probable según la lectura
+             * @default []
+             */
+            opciones_numero: number[];
+            /**
+             * Opciones Terreno
+             * @description Terrenos posibles, del más al menos probable según el color
+             * @default []
+             */
+            opciones_terreno: ("bosque" | "pastos" | "campos" | "colinas" | "montanas" | "desierto")[];
         };
         /** InfoModelo */
         InfoModelo: {

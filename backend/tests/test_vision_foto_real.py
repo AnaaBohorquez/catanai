@@ -52,6 +52,38 @@ def test_ningun_error_llega_con_confianza_alta(lectura):
             assert d.confianza_numero < 0.5, d.id
 
 
+def _girada(grados: float) -> bytes:
+    import cv2
+    import numpy as np
+
+    imagen = cv2.imdecode(np.frombuffer(FOTO.read_bytes(), np.uint8), cv2.IMREAD_COLOR)
+    alto, ancho = imagen.shape[:2]
+    matriz = cv2.getRotationMatrix2D((ancho / 2, alto / 2), grados, 1.0)
+    cos, sen = abs(matriz[0, 0]), abs(matriz[0, 1])
+    nuevo_ancho, nuevo_alto = int(alto * sen + ancho * cos), int(alto * cos + ancho * sen)
+    matriz[0, 2] += nuevo_ancho / 2 - ancho / 2
+    matriz[1, 2] += nuevo_alto / 2 - alto / 2
+    girada = cv2.warpAffine(
+        imagen, matriz, (nuevo_ancho, nuevo_alto), borderValue=(255, 255, 255)
+    )
+    return cv2.imencode(".png", girada)[1].tobytes()
+
+
+@pytest.mark.parametrize("grados", [180, 90, 25])
+def test_lee_la_foto_girada(grados):
+    """
+    Girada, la lectura sale con el tablero rotado (es el mismo tablero): se compara
+    como conjunto de parejas terreno-número, que no depende de la rotación.
+    """
+    lectura = vision.leer_tablero(_girada(grados))
+    leidas = sorted((d.terreno, d.numero or 0) for d in lectura.detecciones)
+    assert leidas == sorted((t, n or 0) for t, n in VERDAD)
+    assert all(
+        d.confianza_numero < 0.5 or (d.terreno, d.numero) in VERDAD
+        for d in lectura.detecciones
+    )
+
+
 @pytest.mark.parametrize("calidad", [95, 85, 70])
 def test_aguanta_la_recompresion_jpeg(calidad):
     """

@@ -15,6 +15,18 @@
         Tócalos y confirma o corrige el número.
       </p>
     }
+    @if (dudosos() || numerosDudosos()) {
+      <button
+        type="button"
+        class="mt-2 rounded-lg border border-emerald-700/40 bg-emerald-50 px-3 py-1.5 text-sm font-semibold text-emerald-900 hover:bg-emerald-100"
+        (click)="aceptarTodo.emit()"
+      >
+        👍 Todo se ve bien
+      </button>
+    }
+    @if (ajuste()) {
+      <p role="status" class="mt-2 rounded-lg bg-sky-50 px-3 py-2 text-sm text-sky-950">🔁 {{ ajuste() }}</p>
+    }
   </div>
 
   <!-- Qué falta, contra el reparto del juego base. -->
@@ -50,6 +62,32 @@
   @if (hexagono(); as h) {
     <div class="rounded-lg border border-accion/40 bg-white p-3">
       <p class="text-sm font-semibold">Hexágono seleccionado: {{ nombreTerreno[h.terreno] }} {{ h.numero ?? '' }}</p>
+      @if (sugerenciasTerreno().length || sugerenciasNumero().length) {
+        <p class="mt-2 text-sm text-stone-700">¿Es alguna de estas?</p>
+        <div class="mt-1 flex flex-wrap gap-2">
+          @for (t of sugerenciasTerreno(); track t) {
+            <button
+              type="button"
+              class="rounded-xl border-2 border-accion/50 px-4 py-2 text-base font-semibold"
+              [style.background-color]="colorTerreno[t]"
+              [class.text-white]="t === 'bosque' || t === 'colinas'"
+              (click)="cambiarTerreno.emit(t)"
+            >
+              {{ iconoTerreno[t] }} {{ nombreTerreno[t] }}
+            </button>
+          }
+          @for (n of sugerenciasNumero(); track n) {
+            <button
+              type="button"
+              class="size-14 rounded-full border-2 border-accion/50 bg-crema text-xl font-bold"
+              [class.text-red-700]="n === 6 || n === 8"
+              (click)="cambiarNumero.emit(n)"
+            >
+              {{ n }}
+            </button>
+          }
+        </div>
+      }
       <p class="mt-2 text-sm text-stone-700">Terreno</p>
       <div class="mt-1 grid grid-cols-3 gap-2">
         @for (t of terrenos; track t) {

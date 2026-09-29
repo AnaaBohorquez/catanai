@@ -111,6 +111,14 @@ class HexagonoDetectado(BaseModel):
     numero: int | None = None
     confianza_terreno: float = Field(ge=0, le=1)
     confianza_numero: float = Field(ge=0, le=1)
+    opciones_numero: list[int] = Field(
+        default=[],
+        description="Números posibles, del más al menos probable según la lectura",
+    )
+    opciones_terreno: list[Terreno] = Field(
+        default=[],
+        description="Terrenos posibles, del más al menos probable según el color",
+    )
 
 
 class RespuestaVision(BaseModel):

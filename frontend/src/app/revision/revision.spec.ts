@@ -1,6 +1,6 @@
 import type { Hexagono, Tablero } from '../api/tipos';
 import { aristasDeCosta, clave, destinosPosibles, girarPuertos } from './costa';
-import { FICHAS_BASE, conteoFichas, pipsDe, sinNumero } from './reparto';
+import { FICHAS_BASE, conteoFichas, pipsDe, reacomodar, sinNumero } from './reparto';
 
 /** Las 19 coordenadas del juego base. */
 function coordenadas(): [number, number][] {
@@ -95,5 +95,47 @@ describe('reparto', () => {
     ] as Hexagono[];
     expect(conteoFichas(hexagonos).find((c) => c.clave === 6)?.hay).toBe(1);
     expect(sinNumero(hexagonos).map((h) => h.id)).toEqual(['b']);
+  });
+});
+
+describe('reacomodar', () => {
+  const hex = (id: string, terreno: Hexagono['terreno'], numero: number | null): Hexagono =>
+    ({ id, q: 0, r: 0, terreno, numero, pips: pipsDe(numero), recurso: null }) as Hexagono;
+
+  it('al poner un número que ya estaba completo, mueve la otra ficha a su siguiente opción', () => {
+    const hs = [hex('a', 'bosque', 9), hex('b', 'bosque', 9), hex('c', 'campos', 9)];
+    const opciones = {
+      a: { numeros: [9, 4], terrenos: ['bosque' as const] },
+      b: { numeros: [4, 9], terrenos: ['bosque' as const] },
+      c: { numeros: [9, 3], terrenos: ['campos' as const] },
+    };
+    // El usuario confirma la c como 9: sobra un 9; b tenía el 9 como 2.ª opción.
+    const { hexagonos, cambios } = reacomodar(hs, 'c', new Set(['c']), opciones);
+    expect(hexagonos.map((h) => h.numero)).toEqual([9, 4, 9]);
+    expect(hexagonos[1].pips).toBe(3);
+    expect(cambios).toEqual(['9 → 4']);
+  });
+
+  it('no mueve lo que el usuario ya revisó', () => {
+    const hs = [hex('a', 'bosque', 9), hex('b', 'bosque', 9), hex('c', 'campos', 9)];
+    const opciones = {
+      a: { numeros: [9, 4], terrenos: ['bosque' as const] },
+      b: { numeros: [4, 9], terrenos: ['bosque' as const] },
+      c: { numeros: [9, 3], terrenos: ['campos' as const] },
+    };
+    const { hexagonos } = reacomodar(hs, 'c', new Set(['c', 'a', 'b']), opciones);
+    expect(hexagonos.map((h) => h.numero)).toEqual([9, 9, 9]);
+  });
+
+  it('al mover el desierto, el viejo desierto recibe terreno y el número que sobró', () => {
+    const hs = [hex('d', 'desierto', null), hex('x', 'desierto', null)];
+    const opciones = {
+      d: { numeros: [5, 6], terrenos: ['desierto' as const, 'campos' as const] },
+      x: { numeros: [], terrenos: ['campos' as const, 'desierto' as const] },
+    };
+    // El usuario dice que x es el desierto (antes era un campo con 5).
+    const { hexagonos } = reacomodar(hs, 'x', new Set(['x']), opciones);
+    expect(hexagonos[0].terreno).toBe('campos');
+    expect(hexagonos[0].numero).toBe(5);
   });
 });

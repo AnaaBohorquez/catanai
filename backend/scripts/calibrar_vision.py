@@ -41,8 +41,7 @@ def _parches(imagen_bytes: bytes) -> tuple[dict, bool]:
     """
     imagen = vision._decodificar(imagen_bytes)
     hsv_imagen = cv2.cvtColor(imagen, cv2.COLOR_BGR2HSV)
-    seguras, radio = vision_fichas.detectar_fichas(imagen, hsv_imagen)
-    red = vision_fichas.ajustar_red(seguras, radio, hsv_imagen)
+    red = vision_fichas.encontrar_red(imagen, hsv_imagen)
     salida = {}
     if red is not None:
         for coord in coordenadas_hexagonos():

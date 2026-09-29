@@ -33,6 +33,11 @@ export class PanelRevisionComponent {
   /** Avisos del backend al confirmar; null mientras no se ha intentado. */
   readonly avisos = input<string[] | null>(null);
   readonly confirmando = input(false);
+  /** Qué se reacomodó solo tras la última corrección. */
+  readonly ajuste = input<string | null>(null);
+  /** Opciones más probables del hexágono dudoso seleccionado, para elegir de un toque. */
+  readonly sugerenciasNumero = input<number[]>([]);
+  readonly sugerenciasTerreno = input<Terreno[]>([]);
 
   readonly cambiarTerreno = output<Terreno>();
   readonly cambiarNumero = output<number | null>();
@@ -43,6 +48,7 @@ export class PanelRevisionComponent {
   readonly continuar = output<void>();
   readonly volver = output<void>();
   readonly descartar = output<void>();
+  readonly aceptarTodo = output<void>();
 
   protected readonly terrenos = Object.keys(NOMBRE_TERRENO) as Terreno[];
   protected readonly nombreTerreno = NOMBRE_TERRENO;
