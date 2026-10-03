@@ -7,20 +7,31 @@ o se descubre una trampa.
 
 ## 1. Qué es esto
 
-Recomendador de colocación inicial en Catan. El usuario fotografía el tablero recién
-armado, la app calcula qué pareja de poblados conviene y explica por qué.
+Guía de Catan en dos fases. **Colocación inicial:** el usuario fotografía el tablero
+recién armado y la app calcula, con el modelo, qué pareja de poblados conviene y
+explica por qué. **Partida en curso:** el usuario sigue marcando sus poblados, sus
+ciudades y los de los rivales, y un chat experto aconseja qué construir y hacia dónde
+crecer, con reglas verificadas del juego.
 
 Monorepo con `backend/` (FastAPI) y `frontend/` (Angular) al mismo nivel.
 
 - **Usuario final:** jugador casual o intermedio que quiere mejorar.
-- **Alcance:** Catan base, 3 o 4 jugadores, la fase de colocación inicial. Un paso
-  más: con los dos poblados puestos, sugerir hacia dónde crecer (el tercer poblado).
+- **Alcance:** Catan base, 3 o 4 jugadores. La colocación inicial con el modelo, y
+  después la partida en curso como guía: el usuario sigue marcando sus poblados, sus
+  ciudades y los de los rivales, y el chat aconseja qué construir y hacia dónde crecer.
 - **Contexto:** trabajo final del Módulo 5. Demos el 1 y 3 de octubre de 2026.
 
-**Flujo del usuario (sin login):** ① foto del tablero vacío → ② revisar y corregir
-terrenos, números y puertos → ③ marcar con clic los poblados ajenos → ④ pedir la
-recomendación y preguntar al chat. El **tablero de demostración** entra al mismo
-flujo en ② y sirve para la demo pública y las pruebas; la foto no debe bloquearla.
+**Flujo del usuario (sin login):**
+1. Foto del tablero vacío, o el **tablero de demostración** (entra directo al paso 2 y
+   sirve para la demo pública y las pruebas; la foto no debe bloquearla).
+2. Revisar y corregir terrenos, números y puertos.
+3. Marcar con clic los poblados de los rivales.
+4. Pedir la recomendación (pareja inicial) y preguntar al chat por qué y cómo jugarla.
+5. Marcar tus dos poblados: termina la colocación inicial y empieza la partida.
+6. En partida, seguir marcando poblados, ciudades y rivales, y preguntar al chat
+   «¿Qué construyo ahora?» o «¿Hacia dónde crezco?» (marca los destinos A, B y C).
+
+«Nueva partida» vuelve al paso 3 con el mismo tablero o al paso 1.
 
 Lee `docs/conceptos-catan.md` antes de tocar nada del dominio.
 
@@ -84,6 +95,7 @@ Un `npm start` que ya corría **no** relee `angular.json`: si cambia, reinícial
 | **Puertos de un tablero de foto: plantilla editable** | La foto no lee puertos. La plantilla (`domain/puertos.py`) reproduce el tablero de principiantes, medido sobre `logs/ejemplo-tablero.png`: aristas de costa 2, 5, 9, 12, 15, 19, 22, 25 y 29. Madera, oveja y mineral están **por confirmar** (`POR_CONFIRMAR`). El usuario gira, mueve y cambia tipos al revisar |
 | **Render con Python nativo + uv, no Docker** | Sin Docker en la máquina de desarrollo, la imagen solo se probaría en Render, con un ciclo de commit y build por cada fallo. Render corre los mismos comandos `uv` que se usan en local |
 | **Chat con LLM y herramientas** | El profesor ve un chat que entiende preguntas libres. El LLM no recibe datos en el prompt: los pide a herramientas del backend, y un verificador rechaza cifras que no salgan de ellas. Sin clave, sin presupuesto o si algo falla, responde con plantillas |
+| **Partida en curso: poblados, ciudades y rivales de un solo tipo** | Con dos piezas propias termina la colocación inicial (`PIEZAS_INICIALES`). Después no hay tope de 2: 5 poblados y 4 ciudades (juego base). La ciudad sale de tocar un poblado propio en modo Ciudad y cuenta doble. Los rivales no se distinguen por color: basta para la regla de distancia y para ver quién compite cerca. Los caminos no se marcan |
 | **Tercer poblado por fórmula a la vista, no por la regresión** | El modelo se entrenó para elegir la pareja inicial. `domain/expansion.py` puntúa pips + 0.5 × pips de recursos nuevos + puerto − caminos extra − rival cerca, con pesos a criterio. Sin marcar caminos: la distancia se cuenta desde los poblados y un camino no cruza un poblado rival |
 | **Las alternativas no incluyen la familia desequilibrada** | Su consejo es "cambia de pareja". Antes aparecía como opción 2 o 3 en 6 de 30 tableros. `SOLO_SI_ES_LA_MEJOR` en `recomendador.py` solo la deja entrar como opción 1. Diversificar cuesta en promedio 0.74 puntos estimados en la opción 2 y 1.84 en la 3, y la UI lo dice |
 
@@ -210,6 +222,12 @@ mandaba ninguno: el estado decía "primera colocación" y las herramientas pedí
 recomendación que ya no se podía pedir. Ahora `PeticionChat.propios` lleva todos, el
 estado dice "colocación inicial completa" y las herramientas de opciones redirigen a
 `hacia_donde_expandir`.
+
+### 5.21 Las rondas de la partida usan la misma fórmula que las variables
+`turnos_hasta()` (en `variables.py`) salió de `variables_de_pareja` para reutilizarla
+con todas las piezas del usuario (`domain/partida.py`). Se comprobó que las variables
+de 100 parejas quedan idénticas: el modelo no cambia. Si se toca esa función, cambian
+a la vez el dataset y los consejos de partida.
 ---
 
 ## 6. Arquitectura
@@ -233,8 +251,11 @@ estado dice "colocación inicial completa" y las herramientas de opciones rediri
 - **Las reglas del juego salen de `domain/reglas.md`**, y solo las entradas con
   `verificado: sí`. El archivo se lee una vez por proceso: tras editarlo, reiniciar
   el backend.
-- **Las marcas del tablero son la única verdad de la colocación en curso.** `marcas`
-  en `App` (vértice → propio o rival). De ellas salen `mio` y `ocupados` para
+- **Las marcas del tablero son la única verdad de la partida.** `marcas` en `App`
+  (vértice → `propio`, `ciudad` o `rival`); la lógica de cada toque está en
+  `tocar()` de `colocacion.ts`. Con dos piezas propias (`PIEZAS_INICIALES`) termina
+  la colocación inicial: «Recomendar» se apaga y el chat recibe `propios` y
+  `ciudades` para aconsejar la partida. De ellas salen `mio` y `ocupados` para
   `/recomendar` y para el chat, y los bloqueados por la regla de distancia
   (`sonVecinos()` en `tablero/geometria.ts`: dos vértices son vecinos si comparten
   dos hexágonos, igual que en el dominio). Tras el primer "Recomendar", cambiar
@@ -299,9 +320,10 @@ estado dice "colocación inicial completa" y las herramientas de opciones rediri
 | Revisión del tablero | lista: empieza en el primer dudoso; opciones más probables de un toque; al corregir, `reacomodar()` mueve sola la ficha con la que se confundió y lo avisa; «Todo se ve bien» acepta lo dudoso; contador contra el reparto; girar/mover/cambiar puertos; confirmar con `/tableros/validar` |
 | Foto | subir o tomar con la cámara del celular (`capture`); se reduce a 1600 px en el navegador y no se guarda en el backend |
 | Chat: plantillas y LLM | LLM con herramientas, verificador, límites y registro; probado en vivo con `gpt-5-mini` (≈ US$0.001 por pregunta, 7 s). Clave rechazada detectada y avisada (§5.15). Plantillas normalizadas con intención de estrategia. Falta correr `scripts/evaluar_chat.py` con las 5 preguntas de estrategia |
-| Reglas verificadas | borrador de 17 entradas en `domain/reglas.md`, **ninguna verificada**: hasta entonces el chat no cita reglas. `test_la_regla_de_costos_coincide_con_la_tabla_del_codigo` mantiene la de costos igual a `COSTOS` |
-| Marcar la colocación | modo + toque (Mi poblado, Rival, Borrar); regla de distancia en el cliente; recálculo automático; segunda colocación con `mio`; con los dos, «🧭 ¿Hacia dónde crezco?» (`/expansion` y `hacia_donde_expandir`) marca los destinos A, B y C con su ruta en el tablero. Los caminos no se marcan |
-| Herramientas del asistente | 13 (con `hacia_donde_expandir`); antes 12: 5 sobre las opciones, el tablero marcado y las reglas; 6 de experto (costos, mano, conseguir un recurso, plan de construcción, probabilidades, tablero) y `explicar_estrategia` (ficha de la familia, perfil frente al centro de su grupo en KMeans, plan ordenado por la prioridad de la familia). Todas calculadas desde el dominio o el modelo |
+| Reglas verificadas | borrador de 17 entradas en `domain/reglas.md`, **ninguna verificada**: hasta entonces el chat no cita reglas. Ana las revisa en la página «Reglas de Catan por verificar» y `scripts/aplicar_verificacion.py` pasa sus resultados a `reglas.md`. `test_la_regla_de_costos_coincide_con_la_tabla_del_codigo` mantiene la de costos igual a `COSTOS` |
+| Marcar la colocación y la partida | modo + toque (Mi poblado, Ciudad, Rival, Borrar); regla de distancia en el cliente; recálculo automático; segunda colocación con `mio`. En partida: hasta 5 poblados y 4 ciudades; «🧭 ¿Hacia dónde crezco?» (`/expansion` y `hacia_donde_expandir`) marca los destinos A, B y C con su ruta. Los caminos no se marcan |
+| Guía de la partida | `domain/partida.py`: producción de todas tus piezas (ciudades ×2), números que te pagan, puertos y rondas hasta cada construcción con la misma fórmula que el modelo (`turnos_hasta`). Herramienta `mi_produccion`; `plan_de_construccion`, `como_conseguir` y `que_me_falta` usan tus piezas reales en partida. Modo básico con plantilla «Tu partida» |
+| Herramientas del asistente | 14 (con `mi_produccion` y `hacia_donde_expandir`); antes 12: 5 sobre las opciones, el tablero marcado y las reglas; 6 de experto (costos, mano, conseguir un recurso, plan de construcción, probabilidades, tablero) y `explicar_estrategia` (ficha de la familia, perfil frente al centro de su grupo en KMeans, plan ordenado por la prioridad de la familia). Todas calculadas desde el dominio o el modelo |
 | Plantilla "22 % más de puntos" | cifra retirada del chat hasta verificarla contra `parejas.csv` (`make dataset`) |
 | Frontend Angular | diseño "tablero + asistente": tablero fijo con la opción resaltada; panel con franja de opciones, tarjetas dentro del chat y campo fijo en móvil. Un solo estado de selección en `App`. Botón «¿Cómo juego esta estrategia?» en cada tarjeta y «Nueva partida» (nueva colocación en el mismo tablero o empezar de cero) |
 | Despliegue | configuración lista (`docs/despliegue.md`); falta crear los servicios |

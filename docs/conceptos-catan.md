@@ -254,6 +254,19 @@ Ejemplo: un vértice de 10 pips que te da mineral (4 pips de mineral, que no pro
 
 ---
 
+## 14. Seguir la partida
+
+Después de la colocación inicial, la app sirve de **guía**. El usuario sigue marcando en el tablero lo que pasa en la mesa:
+- **🏠 Mi poblado**: cada poblado nuevo (hasta 5, el límite del juego base);
+- **🏰 Ciudad**: se toca uno de tus poblados y sube a ciudad (hasta 4). Una ciudad **cobra dos cartas** cuando sale su número, así que sus pips cuentan doble;
+- **⛔ Rival**: los poblados de los demás, sin distinguir color.
+
+Con eso, el chat calcula **tu producción real** (la de todas tus piezas): cartas por ronda de cada recurso, qué números te pagan, qué no produces y tus puertos. Para «¿qué construyo ahora?» usa la **misma fórmula de rondas** que las variables del modelo (§6 y trampa 5.3): cuánto tardas en juntar cada costo, contando el cambio 4:1, 3:1 o 2:1 para lo que no produces. «¿Hacia dónde crezco?» sigue funcionando y parte de todas tus piezas (§13).
+
+**Las reglas** solo se citan si están verificadas contra el reglamento (`reglas.md`, `verificado: sí`). Sin eso, el chat dice que no tiene la regla verificada, en vez de recitarla de memoria.
+
+---
+
 ## Pendientes
 
 - [ ] Implementar `produccion_efectiva` con las tasas de cambio 4:1, 3:1 y 2:1

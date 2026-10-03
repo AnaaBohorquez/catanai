@@ -108,7 +108,18 @@
   <!-- Marcas del usuario: su poblado (crema, «Tú») y los de rivales (gris oscuro). -->
   @for (m of marcados(); track m.id) {
     <g [attr.transform]="'translate(' + m.centro.x + ' ' + m.centro.y + ')'"
-       [attr.aria-label]="m.tipo === 'propio' ? 'Tu poblado' : 'Poblado de un rival'">
+       [attr.aria-label]="m.tipo === 'propio' ? 'Tu poblado' : m.tipo === 'ciudad' ? 'Tu ciudad' : 'Poblado de un rival'">
+      @if (m.tipo === 'ciudad') {
+        <!-- Ciudad: una casa con torre, más grande que el poblado. -->
+        <path
+          [attr.transform]="'scale(' + tam * 0.36 + ')'"
+          d="M -1 0.85 L -1 -0.35 L -0.45 -0.9 L 0.1 -0.35 L 0.1 -0.15 L 1 -0.15 L 1 0.85 Z"
+          fill="#fbf5e6" stroke="#3b2412"
+          stroke-width="3" stroke-linejoin="round" vector-effect="non-scaling-stroke"
+        />
+        <text [attr.y]="tam * 0.12" text-anchor="middle" dominant-baseline="central"
+              [attr.font-size]="tam * 0.2" font-weight="700" fill="#3b2412">Tú</text>
+      } @else {
       <path
         [attr.transform]="'scale(' + tam * 0.3 + ')'"
         d="M -1 -0.05 L 0 -1 L 1 -0.05 L 0.78 -0.05 L 0.78 0.85 L -0.78 0.85 L -0.78 -0.05 Z"
@@ -116,6 +127,7 @@
         [attr.stroke]="m.tipo === 'propio' ? '#3b2412' : '#f5f5f4'"
         stroke-width="3" stroke-linejoin="round" vector-effect="non-scaling-stroke"
       />
+      }
       @if (m.tipo === 'propio') {
         <text [attr.y]="tam * 0.12" text-anchor="middle" dominant-baseline="central"
               [attr.font-size]="tam * 0.2" font-weight="700" fill="#3b2412">Tú</text>

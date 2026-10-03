@@ -408,10 +408,16 @@ export interface components {
             mio?: string | null;
             /**
              * Propios
-             * @description Todos los poblados del usuario (con dos, la colocación está completa)
+             * @description Poblados del usuario (con dos piezas, la colocación está completa)
              * @default []
              */
             propios: string[];
+            /**
+             * Ciudades
+             * @description Ciudades del usuario
+             * @default []
+             */
+            ciudades: string[];
             /**
              * Jugadores
              * @default 4
@@ -424,11 +430,18 @@ export interface components {
             /**
              * Propios
              * @description Poblados del usuario
+             * @default []
              */
             propios: string[];
             /**
+             * Ciudades
+             * @description Ciudades del usuario
+             * @default []
+             */
+            ciudades: string[];
+            /**
              * Ocupados
-             * @description Poblados de rivales
+             * @description Poblados y ciudades de rivales
              * @default []
              */
             ocupados: string[];

@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from typing import Literal
 
 from app.core.errors import ErrorDeDominio
+from app.domain import partida
 from app.domain.reglas import buscar_reglas, reglas_verificadas
 from app.domain.simulador import TOPOLOGIA
 from app.domain.tablero import COSTOS, PIPS, RECURSOS
@@ -288,6 +289,21 @@ DEFINICIONES_EXPERTO = [
 DEFINICIONES = DEFINICIONES + DEFINICIONES_EXPERTO + [
     {
         "type": "function",
+        "name": "mi_produccion",
+        "description": (
+            "En partida (ya colocaste tus poblados): lo que producen TODAS tus piezas "
+            "(las ciudades cuentan doble): pips y cartas por ronda de cada recurso, qué "
+            "números te pagan, qué no produces, tus puertos, rondas estimadas hasta cada "
+            "construcción y cuántas piezas te quedan. Úsala para '¿qué construyo "
+            "ahora?', '¿qué hago?', '¿qué produzco?', '¿qué me conviene?'."
+        ),
+        "strict": True,
+        "parameters": {
+            "type": "object", "properties": {}, "required": [], "additionalProperties": False
+        },
+    },
+    {
+        "type": "function",
         "name": "hacia_donde_expandir",
         "description": (
             "Con la colocación inicial completa (o con tu primer poblado puesto): los "
@@ -471,15 +487,20 @@ class Herramientas:
         propios = self._propios()
         libres = [
             v for v in TOPOLOGIA.vertices
-            if not any(self._bloqueado(id_vertice(v), ocupados, p) for p in propios or [None])
+            if not any(
+                self._bloqueado(id_vertice(v), ocupados, p)
+                for p in [*propios, *self.peticion.ciudades] or [None]
+            )
         ]
-        if len(propios) >= 2:
-            momento = "colocación completa: ya pusiste tus dos poblados"
+        ciudades = list(self.peticion.ciudades)
+        if self._en_partida():
+            momento = "partida en curso: la colocación inicial ya terminó"
         else:
             momento = "segunda colocación" if propio else "primera colocación"
         return {
             "momento": momento,
             "tus_poblados": [self._describir(p) for p in propios] or "aún no colocas",
+            "tus_ciudades": [self._describir(c) for c in ciudades],
             "rivales_marcados": len(ocupados),
             "poblados_rivales": [self._describir(v) for v in ocupados],
             "vertices_libres_legales": len(libres),
@@ -535,11 +556,18 @@ class Herramientas:
         if recurso not in RECURSOS:
             return {"error": f"Recurso desconocido: {recurso}"}
         opcion = self._opcion_seleccionada()
-        if opcion is None:
+        en_partida = None
+        if opcion is None and self._en_partida():
+            en_partida = self._resumen_de_partida()
+        if opcion is None and en_partida is None:
             return self._sin_opciones()
         self.fuentes.add("modelo")
         puertos = self._puertos_seleccionada()
-        ritmo = self._cartas_por_ronda(opcion)
+        ritmo = en_partida["cartas_por_ronda"] if en_partida else self._cartas_por_ronda(opcion)
+        pips_propios = (
+            en_partida["pips_por_recurso"][recurso] if en_partida
+            else opcion.variables.get(f"pips_{recurso}", 0)
+        )
         # Para conseguir `recurso` se entrega otro; conviene el que más se produce
         # por cada carta que cuesta cambiarlo.
         fuentes_de_cambio = sorted(
@@ -560,11 +588,11 @@ class Herramientas:
         propio = ritmo[recurso]
         return {
             "recurso": recurso,
-            "pips_propios": opcion.variables.get(f"pips_{recurso}", 0),
+            "pips_propios": pips_propios,
             "cartas_por_ronda_produciendo": propio,
             "rondas_por_carta": round(1 / propio, 1) if propio > 0 else None,
             "mejores_cambios": fuentes_de_cambio[:2],
-            "puertos_de_la_opcion": sorted(puertos) or ["ninguno"],
+            "tus_puertos": sorted(puertos) or ["ninguno"],
             "nota": (
                 "Ronda = cada jugador tira una vez. También puedes comerciar con otros "
                 "jugadores."
@@ -573,6 +601,14 @@ class Herramientas:
 
     def _plan_de_construccion(self) -> dict:
         opcion = self._opcion_seleccionada()
+        if opcion is None and self._en_partida() and (datos := self._resumen_de_partida()):
+            self.fuentes.add("modelo")
+            return {
+                "tus_piezas": datos["piezas"],
+                "rondas_estimadas_hasta": datos["rondas_hasta"],
+                "cartas_por_ronda": datos["cartas_por_ronda"],
+                "nota": "Con la producción de todas tus piezas (las ciudades cuentan doble).",
+            }
         if opcion is None:
             return self._sin_opciones()
         self.fuentes.add("modelo")
@@ -681,14 +717,15 @@ class Herramientas:
     def _hacia_donde_expandir(self) -> dict:
         if self.peticion.tablero is None:
             return {"error": "No hay tablero cargado."}
-        propios = self._propios()
-        if not propios:
+        propios, ciudades = self._propios(), list(self.peticion.ciudades)
+        if not propios and not ciudades:
             return {"error": "Primero marca tus poblados en el tablero (Mi poblado)."}
         try:
             respuesta = expansion.calcular(
                 PeticionExpansion(
                     tablero=self.peticion.tablero,
                     propios=propios,
+                    ciudades=ciudades,
                     ocupados=self.peticion.ocupados,
                 )
             )
@@ -710,7 +747,39 @@ class Herramientas:
             ],
         }
 
+    def _mi_produccion(self) -> dict:
+        if self.peticion.tablero is None:
+            return {"error": "No hay tablero cargado."}
+        datos = self._resumen_de_partida()
+        if datos is None:
+            return {"error": "Primero marca tus poblados en el tablero (Mi poblado)."}
+        self.fuentes.add("modelo")
+        return {
+            **datos,
+            "numeros_que_pagan": {str(n): c for n, c in datos["numeros_que_pagan"].items()},
+            "nota": (
+                "Ronda = cada jugador tira una vez; cobras en todas las tiradas. Las "
+                "ciudades cobran doble. Rondas estimadas contando el cambio con el banco "
+                "o tus puertos para lo que no produces."
+            ),
+        }
+
     # --- Apoyo -------------------------------------------------------------
+
+    def _en_partida(self) -> bool:
+        """Con dos piezas propias o más, la colocación inicial terminó."""
+        return len(self._propios()) + len(self.peticion.ciudades) >= 2
+
+    def _resumen_de_partida(self) -> dict | None:
+        """Producción de todas tus piezas (``domain/partida.py``), o None sin piezas."""
+        if self.peticion.tablero is None:
+            return None
+        poblados = [vertice_desde_id(v) for v in self._propios()]
+        ciudades = [vertice_desde_id(v) for v in self.peticion.ciudades]
+        if not poblados and not ciudades:
+            return None
+        dominio = tablero_desde_api(self.peticion.tablero.model_dump())
+        return partida.resumen(poblados, ciudades, dominio, self.peticion.jugadores)
 
     def _propios(self) -> list[str]:
         """Los poblados del usuario: todos los marcados, o al menos el primero."""
@@ -720,10 +789,11 @@ class Herramientas:
 
     def _sin_opciones(self) -> dict:
         """Qué decir cuando no hay opciones en pantalla, según el momento."""
-        if len(self._propios()) >= 2:
+        if self._en_partida():
             return {
-                "error": "La colocación inicial ya está completa. Para seguir la "
-                         "estrategia usa hacia_donde_expandir.",
+                "error": "La colocación inicial ya está completa. En partida usa "
+                         "mi_produccion (qué produces y qué construir) y "
+                         "hacia_donde_expandir (dónde va tu siguiente poblado).",
             }
         return {"error": "Primero hace falta una recomendación en pantalla."}
 
@@ -781,6 +851,9 @@ class Herramientas:
     def _puertos_seleccionada(self) -> set[str]:
         """Los puertos a los que dan acceso los dos poblados de la opción seleccionada."""
         opcion = self._opcion_seleccionada()
+        if opcion is None and self._en_partida():
+            datos = self._resumen_de_partida()
+            return set(datos["puertos"]) if datos else set()
         if opcion is None or self.peticion.tablero is None:
             return set()
         return {

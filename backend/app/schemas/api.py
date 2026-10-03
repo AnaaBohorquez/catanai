@@ -158,15 +158,17 @@ class PeticionChat(BaseModel):
     mio: str | None = Field(default=None, description="Primer poblado del usuario, si lo marcó")
     propios: list[str] = Field(
         default=[],
-        description="Todos los poblados del usuario (con dos, la colocación está completa)",
+        description="Poblados del usuario (con dos piezas, la colocación está completa)",
     )
+    ciudades: list[str] = Field(default=[], description="Ciudades del usuario")
     jugadores: int = Field(default=4, ge=3, le=4)
 
 
 class PeticionExpansion(BaseModel):
     tablero: Tablero
-    propios: list[str] = Field(min_length=1, description="Poblados del usuario")
-    ocupados: list[str] = Field(default=[], description="Poblados de rivales")
+    propios: list[str] = Field(default=[], description="Poblados del usuario")
+    ciudades: list[str] = Field(default=[], description="Ciudades del usuario")
+    ocupados: list[str] = Field(default=[], description="Poblados y ciudades de rivales")
     max_caminos: int = Field(default=3, ge=2, le=5)
 
 

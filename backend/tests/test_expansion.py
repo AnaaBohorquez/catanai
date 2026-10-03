@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 
 import pytest
@@ -105,7 +106,7 @@ def test_el_endpoint_devuelve_destinos_con_letra(pantalla):
 def test_con_dos_poblados_el_estado_dice_colocacion_completa(pantalla):
     peticion = PeticionChat(pregunta="x", **pantalla)
     texto = chat.estado_en_texto(peticion)
-    assert "colocación inicial completa" in texto
+    assert "partida en curso: 2 poblados y 0 ciudades" in texto
     assert "tus poblados" in texto
     assert not _ID_VERTICE.search(texto)
 
@@ -117,9 +118,18 @@ def test_la_herramienta_devuelve_destinos_sin_ids(pantalla):
     assert h.destinos and len(h.destinos) == 3
 
 
-def test_las_herramientas_de_opciones_redirigen_a_expandir(pantalla):
+def test_las_herramientas_de_opciones_redirigen_en_partida(pantalla):
     h = Herramientas(PeticionChat(pregunta="x", **pantalla))
-    assert "hacia_donde_expandir" in h.ejecutar("plan_de_construccion", "{}")
+    salida = h.ejecutar("explicar_estrategia", '{"familia": null}')
+    assert "mi_produccion" in salida and "hacia_donde_expandir" in salida
+
+
+def test_en_partida_el_plan_usa_tus_piezas(pantalla):
+    h = Herramientas(PeticionChat(pregunta="x", **pantalla))
+    salida = json.loads(h.ejecutar("plan_de_construccion", "{}"))
+    assert salida["tus_piezas"] == {"poblados": 2, "ciudades": 0}
+    piezas = {"camino", "poblado", "ciudad", "carta_desarrollo"}
+    assert set(salida["rondas_estimadas_hasta"]) == piezas
 
 
 @pytest.mark.parametrize(
@@ -131,3 +141,47 @@ def test_el_modo_basico_responde_con_los_destinos(pantalla, pregunta):
     assert r.fuente == "plantillas"
     assert "### Destino A" in r.texto
     assert r.destinos and r.destinos[0].letra == "A"
+
+
+
+# --- Partida en curso -------------------------------------------------------------
+
+
+def test_mi_produccion_cuenta_doble_las_ciudades(pantalla):
+    poblado, ciudad = pantalla["propios"]
+    con_ciudad = Herramientas(PeticionChat(pregunta="x", tablero=pantalla["tablero"],
+                                           propios=[poblado], ciudades=[ciudad]))
+    sin_ciudad = Herramientas(PeticionChat(pregunta="x", **pantalla))
+    a = json.loads(con_ciudad.ejecutar("mi_produccion", "{}"))
+    b = json.loads(sin_ciudad.ejecutar("mi_produccion", "{}"))
+    assert sum(a["pips_por_recurso"].values()) > sum(b["pips_por_recurso"].values())
+    assert a["piezas"] == {"poblados": 1, "ciudades": 1}
+    assert a["quedan"] == {"poblados": 4, "ciudades": 3}
+    assert not _ID_VERTICE.search(con_ciudad.salidas[-1])
+
+
+def test_la_expansion_parte_tambien_de_las_ciudades(pantalla):
+    _, ciudad = pantalla["propios"]
+    r = cliente.post("/api/v1/expansion", json={
+        "tablero": pantalla["tablero"], "propios": [], "ciudades": [ciudad],
+    })
+    assert r.status_code == 200
+    assert all(d["ruta"][0] == ciudad for d in r.json()["destinos"])
+
+
+def test_mas_de_dos_poblados_propios(tablero, propios):
+    tercero = destinos_de_expansion(tablero, propios, [])[0]["vertice"]
+    destinos = destinos_de_expansion(tablero, [*propios, tercero], [])
+    verificar_expansion(destinos, [*propios, tercero], [])
+
+
+@pytest.mark.parametrize("pregunta", ["¿Qué construyo ahora?", "¿Qué hago ahora?"])
+def test_en_partida_el_modo_basico_da_el_plan(pantalla, pregunta):
+    r = chat.responder(PeticionChat(pregunta=pregunta, **pantalla))
+    assert r.texto.startswith("### Tu partida · 2 poblados · 0 ciudades")
+    assert "**Lo que puedes construir antes**" in r.texto
+
+
+def test_en_partida_ya_no_manda_a_recomendar(pantalla):
+    r = chat.responder(PeticionChat(pregunta="hola", **pantalla))
+    assert "Recomendar" not in r.texto

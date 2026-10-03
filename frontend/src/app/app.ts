@@ -15,12 +15,14 @@ import type {
 } from './api/tipos';
 import { AsistenteComponent, type Actualizacion } from './asistente/asistente';
 import {
-  MAX_PROPIOS,
+  PIEZAS_INICIALES,
+  ciudades,
   type Marcas,
   type ModoMarcado,
   firma,
   propios,
   rivales,
+  tocar,
 } from './colocacion';
 import { reducirFoto } from './foto/reducir';
 import { type Arista, destinosPosibles, girarPuertos } from './revision/costa';
@@ -105,11 +107,19 @@ export class App implements OnInit {
   protected readonly crecimiento = signal<Destino[]>([]);
 
   protected readonly propios = computed(() => propios(this.marcas()));
+  protected readonly ciudades = computed(() => ciudades(this.marcas()));
   protected readonly ocupados = computed(() => rivales(this.marcas()));
-  /** Con un solo poblado propio, es tu primer poblado: se recomienda el segundo. */
-  protected readonly mio = computed(() => (this.propios().length === 1 ? this.propios()[0] : null));
-  /** Con los dos poblados propios puestos, ya no hay nada que recomendar. */
-  protected readonly completo = computed(() => this.propios().length >= MAX_PROPIOS);
+  /** Tus poblados y ciudades. */
+  private readonly misPiezas = computed(() => this.propios().length + this.ciudades().length);
+  /** Con una sola pieza propia, es tu primer poblado: se recomienda el segundo. */
+  protected readonly mio = computed(() =>
+    this.misPiezas() === 1 && this.propios().length === 1 ? this.propios()[0] : null,
+  );
+  /**
+   * Con dos piezas propias termina la colocación inicial y empieza la partida: ya no
+   * se recomiendan parejas; el chat guía qué construir y hacia dónde crecer.
+   */
+  protected readonly completo = computed(() => this.misPiezas() >= PIEZAS_INICIALES);
   protected readonly bloqueados = computed<ReadonlySet<string>>(() =>
     bloqueados(Object.keys(this.marcas()), (this.tablero()?.vertices ?? []).map((v) => v.id)),
   );
@@ -495,24 +505,15 @@ export class App implements OnInit {
    */
   protected tocarVertice(id: string): void {
     const modo = this.modo();
-    const actual = this.marcas()[id];
-    if (modo === null) return;
+    const resultado = tocar(this.marcas(), id, modo, this.bloqueados());
+    if (resultado === null) return;
+    if ('aviso' in resultado) {
+      this.avisar(resultado.aviso);
+      return;
+    }
     // Los destinos se calcularon con las marcas anteriores: ya no valen.
     this.crecimiento.set([]);
-
-    if (modo === 'borrar' || actual === modo) {
-      if (actual) this.marcas.update(({ [id]: _, ...resto }) => resto);
-      return;
-    }
-    if (!actual && this.bloqueados().has(id)) {
-      this.avisar('Ese vértice está junto a otro poblado (regla de distancia).');
-      return;
-    }
-    if (modo === 'propio' && this.propios().length >= MAX_PROPIOS) {
-      this.avisar('Ya marcaste tus dos poblados. Borra uno para cambiarlo.');
-      return;
-    }
-    this.marcas.update((m) => ({ ...m, [id]: modo }));
+    this.marcas.set(resultado.marcas);
   }
 
   /** El asistente calculó hacia dónde crecer: se dibuja y se sale del modo de marcado. */

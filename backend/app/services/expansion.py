@@ -25,7 +25,7 @@ def calcular(peticion: PeticionExpansion) -> RespuestaExpansion:
     ErrorDeDominio
         Si no hay poblados propios o algún vértice no existe.
     """
-    if not peticion.propios:
+    if not peticion.propios and not peticion.ciudades:
         raise ErrorDeDominio(
             "Primero marca tus poblados",
             "Hace falta saber dónde están tus poblados para calcular hacia dónde crecer.",
@@ -33,14 +33,16 @@ def calcular(peticion: PeticionExpansion) -> RespuestaExpansion:
     tablero = tablero_desde_api(peticion.tablero.model_dump())
     try:
         propios = [vertice_desde_id(v) for v in peticion.propios]
+        ciudades = [vertice_desde_id(v) for v in peticion.ciudades]
         rivales = [vertice_desde_id(v) for v in peticion.ocupados]
     except KeyError as error:
         raise ErrorDeDominio("Identificador de vértice desconocido", str(error)) from error
 
     destinos = destinos_de_expansion(
-        tablero, propios, rivales, max_caminos=peticion.max_caminos, cuantos=len(LETRAS)
+        tablero, propios, rivales,
+        max_caminos=peticion.max_caminos, cuantos=len(LETRAS), ciudades=ciudades,
     )
-    verificar_expansion(destinos, propios, rivales)
+    verificar_expansion(destinos, [*propios, *ciudades], rivales)
     return RespuestaExpansion(
         destinos=[
             Destino(

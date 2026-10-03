@@ -175,6 +175,7 @@ export class AsistenteComponent {
   readonly mio = input<string | null>(null);
   /** Todos los poblados propios: con dos, el chat sabe que la colocación está completa. */
   readonly propios = input<string[]>([]);
+  readonly ciudades = input<string[]>([]);
   /** Los dos poblados propios ya están puestos. */
   readonly completo = input(false);
   readonly actualizacion = input<Actualizacion | null>(null);
@@ -253,7 +254,9 @@ export class AsistenteComponent {
   }
 
   protected readonly sugerencias = computed(() => {
-    if (this.completo()) return [PREGUNTA_CRECER, '¿Cómo sigo mi estrategia?'];
+    if (this.completo()) {
+      return ['¿Qué construyo ahora?', PREGUNTA_CRECER, '¿Qué me falta para una ciudad?'];
+    }
     const total = this.fichas().length;
     if (total === 0) return [];
     const n = this.seleccionada() + 1;
@@ -308,6 +311,7 @@ export class AsistenteComponent {
         ocupados: this.ocupados(),
         mio: this.mio(),
         propios: this.propios(),
+        ciudades: this.ciudades(),
         jugadores: this.jugadores(),
       })
       .subscribe({

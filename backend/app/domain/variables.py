@@ -131,6 +131,38 @@ def _tasa_de_cambio(recurso: str | None, puertos: set[str]) -> int:
     return 4
 
 
+def turnos_hasta(pr: dict[str, float], puertos: set[str], jugadores: int) -> dict[str, float]:
+    """
+    Rondas estimadas hasta poder pagar cada construcción, con una producción de
+    ``pr`` pips por recurso.
+
+    Un recurso que no produces NO te bloquea: lo compras en el banco (o en tu
+    puerto) con tu recurso dominante. Sin contemplar el comercio, casi todas las
+    parejas topaban en TOPE_TURNOS y la variable no distinguía nada (AGENTS 5.3).
+    Se usa para las parejas iniciales y, en partida, para todas tus piezas.
+    """
+    pips_totales = sum(pr.values())
+    dominante = max(RECURSOS, key=lambda r: pr[r]) if pips_totales > 0 else None
+    cartas_por_ronda = {r: pr[r] / 36.0 * jugadores for r in RECURSOS}
+    ritmo_mayor = max(cartas_por_ronda.values())
+    tasa_dominante = _tasa_de_cambio(dominante, puertos)
+
+    salida = {}
+    for nombre, costo in COSTOS.items():
+        turnos = 0.0
+        for recurso, cantidad in costo.items():
+            ritmo = cartas_por_ronda[recurso]
+            if ritmo > 0:
+                espera = cantidad / ritmo
+            elif ritmo_mayor > 0:
+                espera = cantidad * tasa_dominante / ritmo_mayor
+            else:
+                espera = TOPE_TURNOS
+            turnos = max(turnos, espera)
+        salida[nombre] = min(turnos, TOPE_TURNOS)
+    return salida
+
+
 # ---------------------------------------------------------------------------
 # Variables de una pareja
 # ---------------------------------------------------------------------------
@@ -247,25 +279,8 @@ def variables_de_pareja(
     v["produccion_efectiva"] = efectiva
 
     # -- Fase 3: turnos estimados hasta cada construcción --------------------
-    # Un recurso que no produces NO te bloquea: lo compras en el banco. Sin
-    # contemplar el comercio, casi todas las parejas topaban en TOPE_TURNOS y la
-    # variable no distinguía nada.
-    cartas_por_ronda = {r: pr[r] / 36.0 * jugadores for r in RECURSOS}
-    ritmo_mayor = max(cartas_por_ronda.values())
-    tasa_dominante = _tasa_de_cambio(dominante, puertos)
-
-    for nombre, costo in COSTOS.items():
-        turnos = 0.0
-        for recurso, cantidad in costo.items():
-            ritmo = cartas_por_ronda[recurso]
-            if ritmo > 0:
-                espera = cantidad / ritmo
-            elif ritmo_mayor > 0:
-                espera = cantidad * tasa_dominante / ritmo_mayor
-            else:
-                espera = TOPE_TURNOS
-            turnos = max(turnos, espera)
-        v[f"turnos_a_{nombre}"] = min(turnos, TOPE_TURNOS)
+    for nombre, turnos in turnos_hasta(pr, puertos, jugadores).items():
+        v[f"turnos_a_{nombre}"] = turnos
 
     # -- Fase 3: espacio de expansión ---------------------------------------
     # Los vecinos inmediatos de un poblado nunca son legales: la regla de

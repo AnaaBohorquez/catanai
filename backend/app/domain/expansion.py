@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from collections import deque
 
+from app.domain.partida import produccion as produccion_de
 from app.domain.simulador import TOPOLOGIA
 from app.domain.tablero import (
     RECURSOS,
@@ -76,9 +77,12 @@ def puntuar_destino(
     propios: list[frozenset],
     rivales: list[frozenset],
     tablero: dict,
+    ciudades: list[frozenset] | None = None,
 ) -> dict:
     """
-    El puntaje de un destino y su desglose.
+    El puntaje de un destino y su desglose. ``propios`` son tus poblados y
+    ``ciudades`` tus ciudades (producen doble).
+
 
     puntaje = pips del vértice
             + 0.5 × pips de los recursos que tus poblados no producen
@@ -86,10 +90,7 @@ def puntuar_destino(
             − 2 por cada camino más allá de 2
             − 2 si un rival está a 2 aristas o menos (puede ganarte el vértice)
     """
-    produccion = {r: 0 for r in RECURSOS}
-    for p in propios:
-        for r, pips in pips_por_recurso(p, tablero).items():
-            produccion[r] += pips
+    produccion = produccion_de(propios, ciudades or [], tablero)
     dominante = max(RECURSOS, key=lambda r: produccion[r])
 
     propios_del_vertice = pips_por_recurso(vertice, tablero)
@@ -138,6 +139,7 @@ def destinos_de_expansion(
     rivales: list[frozenset],
     max_caminos: int = 3,
     cuantos: int = 3,
+    ciudades: list[frozenset] | None = None,
 ) -> list[dict]:
     """
     Los mejores vértices para tu siguiente poblado, de mayor a menor puntaje.
@@ -147,16 +149,20 @@ def destinos_de_expansion(
     tablero : dict
         El tablero del dominio.
     propios, rivales : list of frozenset
-        Los poblados ya colocados.
+        Tus poblados y los de los rivales.
+    ciudades : list of frozenset, opcional
+        Tus ciudades: también son punto de partida y producen doble.
     max_caminos : int
         Hasta cuántos caminos de distancia se buscan destinos.
     cuantos : int
         Cuántos destinos devolver.
     """
-    poblados = [*propios, *rivales]
-    rutas = rutas_desde(propios, rivales, max_caminos)
+    ciudades = ciudades or []
+    mias = [*propios, *ciudades]
+    poblados = [*mias, *rivales]
+    rutas = rutas_desde(mias, rivales, max_caminos)
     candidatos = [
-        puntuar_destino(v, ruta, propios, rivales, tablero)
+        puntuar_destino(v, ruta, propios, rivales, tablero, ciudades)
         for v, ruta in rutas.items()
         if len(ruta) - 1 >= CAMINOS_MINIMOS and es_legal(v, poblados)
     ]
