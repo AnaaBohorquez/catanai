@@ -15,4 +15,4 @@ data/processed/*.csv
 openapi.json
 logs/
 docs/
-.env*
+.env.example
