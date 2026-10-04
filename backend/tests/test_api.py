@@ -35,7 +35,7 @@ def test_validar_detecta_un_tablero_incompleto():
 
 @pytest.mark.skipif(
     not cliente.get("/api/v1/health").json()["modelo_cargado"],
-    reason="requiere modelos/colono.joblib",
+    reason="requiere backend/modelos/colono.joblib",
 )
 def test_recomendar_devuelve_estrategias_distintas():
     tablero = cliente.get("/api/v1/tableros/aleatorio?semilla=42").json()
@@ -56,7 +56,7 @@ def test_recomendar_devuelve_estrategias_distintas():
 
 @pytest.mark.skipif(
     not cliente.get("/api/v1/health").json()["modelo_cargado"],
-    reason="requiere modelos/colono.joblib",
+    reason="requiere backend/modelos/colono.joblib",
 )
 def test_segunda_colocacion_conserva_el_primer_poblado():
     tablero = cliente.get("/api/v1/tableros/aleatorio?semilla=42").json()

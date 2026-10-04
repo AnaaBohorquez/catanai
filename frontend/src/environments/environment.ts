@@ -1,8 +1,9 @@
 /**
  * Configuración de producción (`npm run build`, la que despliega Vercel).
  *
- * La URL del backend en Render se escribe en el paso de despliegue, cuando exista.
+ * Frontend y backend se publican en el mismo dominio con Vercel Services: el
+ * `vercel.json` de la raíz manda `/api/...` al backend. Por eso basta una ruta relativa.
  */
 export const environment = {
-  apiUrl: 'https://PENDIENTE-URL-DE-RENDER/api/v1',
+  apiUrl: '/api/v1',
 };

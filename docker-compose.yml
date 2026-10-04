@@ -7,9 +7,6 @@ services:
     container_name: colono-backend
     environment:
       CORS_ORIGINS: http://localhost:4200,http://localhost:8080
-      RUTA_MODELO: /srv/modelos/colono.joblib
-    volumes:
-      - ./modelos:/srv/modelos:ro
     ports:
       - "8000:8000"
     restart: unless-stopped

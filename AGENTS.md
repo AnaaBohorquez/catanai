@@ -70,12 +70,12 @@ Un `npm start` que ya corría **no** relee `angular.json`: si cambia, reinícial
 modelo se entrene con scikit-learn 1.8.0:
 
 ```powershell
-cd backend; uv sync --extra dev --extra llm --extra notebooks   # una vez
+cd backend; uv sync --extra dev --extra notebooks   # una vez (openai ya es dependencia principal)
 ```
 
 En el notebook, «Select Kernel» → `backend\.venv`. Los notebooks encuentran
 `data/processed/parejas.csv` solos (desde `notebooks/`, desde la raíz o en Colab).
-`02_modelo.ipynb` **sobrescribe `modelos/colono.joblib`**.
+`02_modelo.ipynb` **sobrescribe `backend/modelos/colono.joblib`**.
 
 ---
 
@@ -89,7 +89,7 @@ En el notebook, «Select Kernel» → `backend\.venv`. Los notebooks encuentran
 | Frontend | Angular 22+, Tailwind |
 | Asistente | OpenAI `gpt-5-mini` por la Responses API, con herramientas propias. Paquete `openai` en el extra `llm` |
 | Contenedores | Docker + docker compose (solo local; no se usa para desplegar) |
-| Despliegue | Backend en Render (Python nativo + uv), frontend en Vercel. Detalle en `docs/despliegue.md` |
+| Despliegue | Vercel Services: backend (FastAPI) y frontend (Angular) en un solo proyecto y un solo dominio, con `vercel.json` en la raíz |
 
 ---
 
@@ -104,7 +104,7 @@ En el notebook, «Select Kernel» → `backend\.venv`. Los notebooks encuentran
 | **La foto solo lee el tablero VACÍO** | Detectar poblados ajenos es mucho más difícil (piezas de 1 cm, ocluidas, en cuatro colores) y un fallo invalidaría la recomendación. Los poblados ajenos se marcan con clic, que además es más rápido para quien está sentado en la mesa |
 | **Sin login ni panel de administrador** | El profesor declaró el login opcional el 12 de septiembre. Para este producto no hay datos multiusuario que administrar |
 | **Puertos de un tablero de foto: plantilla editable** | La foto no lee puertos. La plantilla (`domain/puertos.py`) reproduce el tablero de principiantes, medido sobre `logs/ejemplo-tablero.png`: aristas de costa 2, 5, 9, 12, 15, 19, 22, 25 y 29. Madera, oveja y mineral están **por confirmar** (`POR_CONFIRMAR`). El usuario gira, mueve y cambia tipos al revisar |
-| **Render con Python nativo + uv, no Docker** | Sin Docker en la máquina de desarrollo, la imagen solo se probaría en Render, con un ciclo de commit y build por cada fallo. Render corre los mismos comandos `uv` que se usan en local |
+| **Vercel Services, no Render** (4 oct.) | Un solo proyecto y un solo dominio para frontend y backend, como el ejemplo del profesor: el frontend llama a `/api/v1` relativo y no hace falta CORS. Services está en beta. Riesgos aceptados: el bundle de Python (OpenCV, SciPy, scikit-learn) ronda los 400 MB de un límite de 500 MB, y los límites del chat (`consumo.py`) viven en memoria de cada instancia. Antes se eligió Render con Python nativo + uv (sin Docker) |
 | **Chat con LLM y herramientas** | El profesor ve un chat que entiende preguntas libres. El LLM no recibe datos en el prompt: los pide a herramientas del backend, y un verificador rechaza cifras que no salgan de ellas. Sin clave, sin presupuesto o si algo falla, responde con plantillas |
 | **Partida en curso: poblados, ciudades y rivales de un solo tipo** | Con dos piezas propias termina la colocación inicial (`PIEZAS_INICIALES`). Después no hay tope de 2: 5 poblados y 4 ciudades (juego base). La ciudad sale de tocar un poblado propio en modo Ciudad y cuenta doble. Los rivales no se distinguen por color: basta para la regla de distancia y para ver quién compite cerca. Los caminos no se marcan |
 | **Tercer poblado por fórmula a la vista, no por la regresión** | El modelo se entrenó para elegir la pareja inicial. `domain/expansion.py` puntúa pips + 0.5 × pips de recursos nuevos + puerto − caminos extra − rival cerca, con pesos a criterio. Sin marcar caminos: la distancia se cuenta desde los poblados y un camino no cruza un poblado rival |
@@ -168,10 +168,13 @@ El modelo se entrenó con 1.8.0 y `uv.lock` había subido a 1.9.1: cargaba, pero
 predicciones de 3 tableros coinciden exactamente. Si se reentrena con otra versión,
 cambiar el pin en el mismo commit.
 
-### 5.11 Render no ve archivos fuera de su Root Directory
-`modelos/` está fuera de `backend/`. Por eso el servicio de Render no fija Root
-Directory y sus comandos empiezan con `cd backend`. Con eso, `RAIZ` de `config.py`
-encuentra `modelos/colono.joblib` sin variables extra.
+### 5.11 El servicio de despliegue no ve archivos fuera de su carpeta
+Render y Vercel empaquetan solo la carpeta del servicio (`backend/`). El modelo vivía
+en `modelos/`, en la raíz: con Render se resolvía sin fijar Root Directory; con Vercel
+Services no hay esa salida, así que el modelo se movió a `backend/modelos/` y
+`config.py` lo busca desde `BACKEND`. Lo mismo vale para cualquier archivo que el
+backend lea en producción: tiene que estar dentro de `backend/`. Por la misma razón
+`openai` pasó de un extra a las dependencias principales: Vercel instala solo esas.
 
 
 ### 5.12 La cuadrícula de la foto se ajusta con las fichas, no con el borde
@@ -244,7 +247,7 @@ a la vez el dataset y los consejos de partida.
 `backend/.venv` no tenía `ipykernel`, `plotly` ni `nbformat` (se hizo solo para la
 API), el Python 3.14 del sistema no tenía `plotly` y el 3.12 sí lo tenía todo pero con
 scikit-learn 1.5.2: entrenar ahí habría dado un `.joblib` incompatible (§5.10). Ahora
-hay un extra `notebooks` en `pyproject.toml` (Render no lo instala). Además: la ruta
+hay un extra `notebooks` en `pyproject.toml` (el despliegue no lo instala). Además: la ruta
 `../data/...` fallaba si Cursor ejecuta desde la raíz (se busca `RAIZ` subiendo
 carpetas), y Plotly 6+ ya no alinea por índice una columna completa con una muestra
 (`color=datos[...]` sobre `datos.sample(...)`): el color sale de la misma muestra.
@@ -342,7 +345,7 @@ Verificado: los dos notebooks corren de punta a punta y el modelo que produce
 | Dataset: 200 tableros, ~39 000 parejas | listo |
 | Notebooks de EDA y modelado | listos |
 | Backend: API, esquemas, tests | listo y probado en local |
-| Dockerfile | desactualizado: no copia `modelos/` (el despliegue no lo usa) |
+| Dockerfile | desactualizado (el despliegue no lo usa) |
 | Visión: terreno por color | red ajustada con las fichas (3 bandas de tamaño) + anillo de color, repartido 4-4-4-3-3 con el algoritmo húngaro; el desierto por tinta y color de arena. **19/19** en las dos fotos de ejemplo, también giradas 90°, 180°, 25° y −40°. Rangos de color **sin calibrar con fotos de celular** |
 | Visión: lectura de números | fichas enderezadas por sus pips; rojo + dígitos + agujeros + abertura del 6/8 + pips, sobre 7 recortes; reparto con el algoritmo húngaro. Referencia: **18/18** en todos los giros y **0 errores con confianza alta**; ~10 quedan para revisión (pips de 2 px). `ejemplo-catan-2.png` (fichas de 12 px, tablero no estándar: desierto con 10 y tres 9): 7–11 de 19. Sin probar con fotos de celular |
 | Visión: puertos | plantilla del marco, editable en la revisión |
@@ -355,4 +358,4 @@ Verificado: los dos notebooks corren de punta a punta y el modelo que produce
 | Herramientas del asistente | 14 (con `mi_produccion` y `hacia_donde_expandir`); antes 12: 5 sobre las opciones, el tablero marcado y las reglas; 6 de experto (costos, mano, conseguir un recurso, plan de construcción, probabilidades, tablero) y `explicar_estrategia` (ficha de la familia, perfil frente al centro de su grupo en KMeans, plan ordenado por la prioridad de la familia). Todas calculadas desde el dominio o el modelo |
 | Plantilla "22 % más de puntos" | cifra retirada del chat hasta verificarla contra `parejas.csv` (`make dataset`) |
 | Frontend Angular | diseño "tablero + asistente": tablero fijo con la opción resaltada; panel con franja de opciones, tarjetas dentro del chat y campo fijo en móvil. Un solo estado de selección en `App`. Botón «¿Cómo juego esta estrategia?» en cada tarjeta y «Nueva partida» (nueva colocación en el mismo tablero o empezar de cero) |
-| Despliegue | configuración lista (`docs/despliegue.md`); falta crear los servicios |
+| Despliegue | `vercel.json` listo (Vercel Services); modelo en `backend/modelos/`, `openai` en las dependencias principales, frontend con `apiUrl: '/api/v1'`. Falta crear el proyecto en Vercel y cargar las variables de entorno |

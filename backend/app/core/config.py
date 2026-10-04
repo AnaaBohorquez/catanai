@@ -8,6 +8,9 @@ from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 RAIZ = Path(__file__).resolve().parents[3]
+#: La carpeta backend/. El modelo vive aquí y no en la raíz: Vercel solo empaqueta la
+#: carpeta del servicio (root "backend"), así que un archivo fuera de ella no llega.
+BACKEND = Path(__file__).resolve().parents[2]
 
 
 class Ajustes(BaseSettings):
@@ -22,7 +25,7 @@ class Ajustes(BaseSettings):
     cors_origins: str = "http://localhost:4200,http://localhost:8080"
 
     #: Dónde vive el modelo entrenado.
-    ruta_modelo: Path = RAIZ / "modelos" / "colono.joblib"
+    ruta_modelo: Path = BACKEND / "modelos" / "colono.joblib"
 
     #: Clave del proveedor de lenguaje para el asistente. Sin ella, el chat
     #: responde con las explicaciones que ya genera el recomendador.

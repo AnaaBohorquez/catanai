@@ -188,6 +188,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "joblib" },
     { name = "numpy" },
+    { name = "openai" },
     { name = "opencv-python-headless" },
     { name = "pandas" },
     { name = "pydantic" },
@@ -203,9 +204,6 @@ dev = [
     { name = "pytest" },
     { name = "ruff" },
 ]
-llm = [
-    { name = "openai" },
-]
 notebooks = [
     { name = "ipykernel" },
     { name = "nbformat" },
@@ -220,7 +218,7 @@ requires-dist = [
     { name = "joblib", specifier = ">=1.4" },
     { name = "nbformat", marker = "extra == 'notebooks'", specifier = ">=5.10" },
     { name = "numpy", specifier = ">=2.0" },
-    { name = "openai", marker = "extra == 'llm'", specifier = ">=1.54" },
+    { name = "openai", specifier = ">=1.54" },
     { name = "opencv-python-headless", specifier = ">=4.10" },
     { name = "pandas", specifier = ">=2.2" },
     { name = "plotly", marker = "extra == 'notebooks'", specifier = ">=5.24" },

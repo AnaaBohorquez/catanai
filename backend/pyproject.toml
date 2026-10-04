@@ -14,11 +14,15 @@ dependencies = [
     "scikit-learn==1.8.0",
     "joblib>=1.4",
     "opencv-python-headless>=4.10",
+    # En las dependencias principales (no en un extra): Vercel instala solo estas, y
+    # sin openai el chat quedaría siempre en modo básico.
+    "openai>=1.54",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.3", "httpx>=0.27", "ruff>=0.7"]
-llm = ["openai>=1.54"]
+# Se conserva para que «uv sync --extra llm» siga funcionando; openai ya va arriba.
+llm = []
 # Para abrir notebooks/ con este mismo entorno (y su scikit-learn 1.8.0) en Cursor o
 # Jupyter. Render no lo instala: su build usa solo --extra llm.
 notebooks = ["ipykernel>=6.29", "plotly>=5.24", "nbformat>=5.10"]

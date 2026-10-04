@@ -14,5 +14,8 @@ data/processed/*.csv
 !data/processed/.gitkeep
 openapi.json
 logs/
-docs/
+# docs/ es material personal (documento final, guía); solo se versiona el dominio.
+# Con «docs/*» (y no «docs/») git permite re-incluir un archivo de dentro.
+docs/*
+!docs/conceptos-catan.md
 .env.example

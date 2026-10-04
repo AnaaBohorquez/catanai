@@ -28,7 +28,7 @@ from app.domain.simulador import parejas_candidatas
 from app.domain.tablero import RECURSOS, hexagonos_del_vertice, puerto_del_vertice
 from app.domain.variables import variables_de_pareja, pips_por_recurso_del_tablero
 
-RUTA_MODELO = Path(__file__).resolve().parents[3] / "modelos" / "colono.joblib"
+RUTA_MODELO = Path(__file__).resolve().parents[2] / "modelos" / "colono.joblib"
 
 #: Nombres legibles de las cuatro familias, y qué aconsejan.
 ESTRATEGIAS = {

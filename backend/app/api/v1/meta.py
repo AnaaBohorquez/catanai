@@ -32,7 +32,7 @@ def info_modelo() -> InfoModelo:
     if paquete is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="El modelo no está cargado. Genera modelos/colono.joblib con el notebook 02.",
+            detail="El modelo no está cargado. Genera backend/modelos/colono.joblib con el notebook 02.",
         )
     return InfoModelo(
         variables=paquete["variables"],

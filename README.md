@@ -8,11 +8,12 @@ el backend y el frontend al mismo nivel:
 
 ```
 backend/       # API en FastAPI (Python): dominio del juego, modelo, visión y chat
+               #   backend/modelos/colono.joblib: el modelo entrenado por 02_modelo.ipynb
 frontend/      # Aplicación en Angular (TypeScript): tablero y asistente
 notebooks/     # Datos, EDA y modelado (00 → 01 → 02), reproducibles en Colab
-modelos/       # colono.joblib, el modelo entrenado por 02_modelo.ipynb
 data/processed # parejas.csv, generado por backend/scripts/generar_dataset.py
-docs/          # conceptos del juego, despliegue y documento final
+docs/          # conceptos-catan.md: el dominio del juego explicado
+vercel.json    # despliegue en Vercel Services (ver «Despliegue»)
 ```
 
 **El problema.** La colocación inicial decide buena parte de la partida y se toma por
@@ -36,7 +37,7 @@ graph TD
         Health["/api/v1/health"]
         Services["app/services/<br/>recomendacion · expansion · vision · chat · herramientas · consumo"]
         Domain["app/domain/ (Python puro)<br/>tablero · variables · simulador · partida · reglas.md"]
-        Modelo[("modelos/colono.joblib<br/>regresión lineal + KMeans")]
+        Modelo[("backend/modelos/colono.joblib<br/>regresión lineal + KMeans")]
     end
 
     OpenAI[("OpenAI API<br/>gpt-5-mini")]
@@ -50,8 +51,8 @@ graph TD
     Services -->|"solo el chat, con clave"| OpenAI
 ```
 
-En producción el backend vive en Render y el frontend en Vercel, en dominios distintos —
-ver ["Despliegue"](#despliegue).
+En producción (Vercel) ambos servicios quedan bajo el mismo dominio — ver
+["Despliegue"](#despliegue) para el diagrama de ruteo.
 
 ## Backend (FastAPI)
 
@@ -59,7 +60,7 @@ El entorno se maneja con [uv](https://docs.astral.sh/uv/). En Windows, desde Pow
 
 ```powershell
 cd backend
-uv sync --extra dev --extra llm          # crea .venv e instala todo (una vez)
+uv sync --extra dev                      # crea .venv e instala todo (una vez)
 uv run uvicorn app.main:app --reload --reload-dir app --port 8000
 ```
 
@@ -120,10 +121,15 @@ sequenceDiagram
 
 **1. Configurar la clave** (solo en el backend; nunca se envía al frontend):
 
-```powershell
-Copy-Item ..\.env.example .env           # desde backend/, y completa OPENAI_API_KEY
+Crea `backend/.env` con, al menos, esta línea:
+
+```
+OPENAI_API_KEY=sk-...
 ```
 
+Otras variables opcionales: `OPENAI_MODEL` (por defecto `gpt-5-mini`), `OPENAI_ESFUERZO`
+(`minimal`), `CHAT_PRESUPUESTO_DIARIO_USD` (`1.0`), `CHAT_PREGUNTAS_POR_IP` (`15`) y
+`ENTORNO` (`desarrollo`). Todas tienen su valor por defecto en `app/core/config.py`.
 `backend/.env` no se versiona. **Sin clave, el chat funciona en modo básico**: responde con
 plantillas que usan las mismas herramientas, y la interfaz lo avisa con «⚙️ Modo básico».
 Reinicia `uvicorn` después de editar el `.env`.
@@ -161,14 +167,14 @@ Reinicia `uvicorn` después de editar el `.env`.
 ```powershell
 cd backend
 uv run python -m scripts.generar_dataset        # ~25 min, 200 tableros → data/processed/parejas.csv
-uv sync --extra dev --extra llm --extra notebooks
+uv sync --extra dev --extra notebooks
 ```
 
 Después abre `notebooks/00_ingenieria_variables.ipynb`, `01_eda.ipynb` y `02_modelo.ipynb`
 en Cursor, VS Code o Jupyter con el kernel **`backend/.venv`**. El modelo se debe entrenar
 con la misma versión de scikit-learn que usa el backend (**1.8.0**, fija en
 `pyproject.toml`); si no, el backend lo carga con advertencias de incompatibilidad.
-`02_modelo` sobrescribe `modelos/colono.joblib`.
+`02_modelo` sobrescribe `backend/modelos/colono.joblib`.
 
 - **Modelo:** regresión lineal sobre 12 variables de la pareja (R² 0.642 en tableros de
   prueba, separados por tablero), más un KMeans que agrupa las parejas en cuatro familias
@@ -225,23 +231,63 @@ En la pestaña Network del navegador se ven las peticiones a
 
 ## Despliegue
 
-El detalle paso a paso está en [`docs/despliegue.md`](docs/despliegue.md).
+`vercel.json` (raíz del repo) usa la feature [Services](https://vercel.com/docs/services)
+de Vercel para desplegar frontend y backend como un solo proyecto, en un solo dominio:
 
-| Pieza | Servicio | Configuración clave |
+```json
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "services": {
+    "backend": { "root": "backend", "framework": "fastapi", "entrypoint": "app.main:app" },
+    "frontend": {
+      "root": "frontend", "framework": "angular",
+      "buildCommand": "npm run build", "outputDirectory": "dist/colono-ia/browser"
+    }
+  },
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": { "service": "backend" } },
+    { "source": "/(.*)", "destination": { "service": "frontend" } }
+  ]
+}
+```
+
+Las `rewrites` se evalúan en orden — la primera regla que coincide decide el destino:
+
+```mermaid
+graph TD
+    P(["Petición entrante<br/>al dominio de Vercel"]) --> Q1{"¿coincide con<br/>/api/(.*)?"}
+    Q1 -->|sí| Back["service: backend<br/>(FastAPI)"]
+    Q1 -->|no| Front["service: frontend<br/>(Angular)"]
+```
+
+- **El backend recibe la ruta completa** (`/api/v1/recomendar`, no `/v1/recomendar`), y
+  todas sus rutas ya viven bajo `/api/v1`, incluida `/api/v1/health`. Por eso basta una
+  regla.
+- `entrypoint: "app.main:app"` es el mismo módulo:variable que usa `uvicorn` en local.
+- El frontend de producción (`frontend/src/environments/environment.ts`) usa la ruta
+  relativa `/api/v1`: no necesita variables de entorno ni CORS.
+- **Todo lo que el backend lee en producción debe estar dentro de `backend/`**: Vercel solo
+  empaqueta la carpeta del servicio. Por eso el modelo vive en `backend/modelos/` y `openai`
+  es una dependencia principal (Vercel no instala los extras).
+
+**En el dashboard de Vercel** (pantalla de importar el proyecto):
+- **Root Directory** en `./`: ahí está `vercel.json` con la clave `services`.
+- **Build and Output Settings** apagados: en modo `services` se definen por servicio en
+  `vercel.json`.
+- **Environment Variables**:
+
+| Variable | Valor | Secreta |
 |---|---|---|
-| Backend | Render, Web Service con Python nativo y uv | Root Directory **vacío** (el modelo está en `modelos/`, fuera de `backend/`). Build: `pip install uv==0.12.10 && cd backend && uv sync --frozen --extra llm`. Start: `cd backend && uv run --frozen --no-sync uvicorn app.main:app --host 0.0.0.0 --port $PORT`. Health check: `/api/v1/health` |
-| Frontend | Vercel | Root Directory `frontend`; build y salida en `frontend/vercel.json` |
+| `OPENAI_API_KEY` | la clave del proyecto de OpenAI | **sí** |
+| `ENTORNO` | `produccion` (no intenta escribir `logs/`) | no |
+| `OPENAI_ESFUERZO` | `minimal` | no |
+| `CHAT_PRESUPUESTO_DIARIO_USD` | `1.0` (tope de gasto del chat por día) | no |
 
-- **Variables de entorno en Render:** `PYTHON_VERSION`, `CORS_ORIGINS` (con el dominio de
-  Vercel), `ENTORNO=produccion`, `OPENAI_API_KEY` (secreta), `OPENAI_ESFUERZO` y
-  `CHAT_PRESUPUESTO_DIARIO_USD`. Las mismas claves de `.env.example`.
-- **La URL del backend** se escribe en `frontend/src/environments/environment.ts` (hoy dice
-  `PENDIENTE-URL-DE-RENDER`).
-- **Plan gratuito de Render:** el servidor se duerme tras 15 min sin uso y tarda cerca de un
-  minuto en despertar; el frontend lo avisa («Despertando el servidor»). Antes de una demo,
-  abre el enlace un par de minutos antes.
-
-**Pendiente:** los servicios todavía no se han creado. La configuración está lista.
+**Riesgos conocidos:** Services está en beta; el bundle de Python (OpenCV, SciPy,
+scikit-learn, pandas) ronda los 400 MB de un límite de 500 MB; los límites del chat
+(preguntas por IP y presupuesto diario) se guardan en memoria de cada instancia, así que el
+tope es aproximado; y la primera petición tras un rato sin uso tarda unos segundos en cargar
+el modelo.
 
 ## Estructura pensada para crecer
 
