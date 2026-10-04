@@ -35,6 +35,7 @@ import {
   type Recurso,
 } from '../estilo-catan';
 import { type Bloque, bloquesDe } from './formato';
+import { NOMBRE_CORTO_FAMILIA, sugerir, temaDe } from './sugerencias';
 
 /** Aviso de que las opciones cambiaron por las marcas del tablero. */
 export interface Actualizacion {
@@ -126,9 +127,6 @@ export function fichasDe(opciones: Opcion[], mio: string | null = null): Ficha[]
       : null,
   }));
 }
-
-/** La pregunta que abre el paso siguiente a la colocación inicial. */
-export const PREGUNTA_CRECER = '🧭 ¿Hacia dónde crezco?';
 
 const BIENVENIDA =
   'Hola, soy tu asistente de Catan. Carga el **tablero de demostración** y pulsa ' +
@@ -253,16 +251,29 @@ export class AsistenteComponent {
     });
   }
 
+  /**
+   * Preguntas sugeridas: siguen el tema de la última respuesta, no repiten lo ya
+   * preguntado y traen una para aprender (📘). Ver `sugerencias.ts`.
+   */
   protected readonly sugerencias = computed(() => {
-    if (this.completo()) {
-      return ['¿Qué construyo ahora?', PREGUNTA_CRECER, '¿Qué me falta para una ciudad?'];
-    }
-    const total = this.fichas().length;
-    if (total === 0) return [];
-    const n = this.seleccionada() + 1;
-    const lista = [`¿Por qué la opción ${n}?`, '¿Qué estrategia sigo?', '¿Y si me quitan un vértice?'];
-    if (total > 1) lista.push(`Compárala con la opción ${n === 1 ? 2 : 1}`);
-    return lista;
+    const textos = this.entradas().filter(
+      (e): e is Extract<Entrada, { tipo: 'texto' }> => e.tipo === 'texto' && !e.error,
+    );
+    const preguntadas = textos.filter((e) => e.rol === 'usuario').map((e) => e.texto);
+    const ultima = textos.filter((e) => e.rol === 'asistente').at(-1)?.texto ?? '';
+    const fichas = this.fichas();
+    const elegida = fichas[this.seleccionada()]?.opcion ?? fichas[0]?.opcion;
+    const otra = fichas.find((f) => f.opcion.estrategia !== elegida?.estrategia)?.opcion;
+    return sugerir({
+      fase: this.completo() ? 'partida' : fichas.length ? 'colocacion' : 'sin-opciones',
+      tema: temaDe(ultima, preguntadas.at(-1) ?? ''),
+      seleccionada: this.seleccionada() + 1,
+      total: fichas.length,
+      familia: elegida?.estrategia ?? null,
+      otraFamilia: otra ? (NOMBRE_CORTO_FAMILIA[otra.estrategia] ?? null) : null,
+      tienePuerto: (elegida?.variables['num_puertos'] ?? 0) > 0,
+      preguntadas,
+    });
   });
 
   /** Un bloque de tarjetas que ya no es el vigente se muestra atenuado y sin tocar. */

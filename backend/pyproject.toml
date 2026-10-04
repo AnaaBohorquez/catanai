@@ -19,6 +19,9 @@ dependencies = [
 [project.optional-dependencies]
 dev = ["pytest>=8.3", "httpx>=0.27", "ruff>=0.7"]
 llm = ["openai>=1.54"]
+# Para abrir notebooks/ con este mismo entorno (y su scikit-learn 1.8.0) en Cursor o
+# Jupyter. Render no lo instala: su build usa solo --extra llm.
+notebooks = ["ipykernel>=6.29", "plotly>=5.24", "nbformat>=5.10"]
 
 [tool.ruff]
 line-length = 96

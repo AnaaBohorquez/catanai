@@ -22,9 +22,16 @@ from typing import Any
 
 from app.core.config import ajustes
 from app.domain.reglas import buscar_reglas, reglas_verificadas
+from app.domain.tablero import COSTOS, PIPS, RECURSOS
+from app.domain.variables import _tasa_de_cambio
 from app.schemas.api import PeticionChat, RespuestaChat
 from app.services import consumo
-from app.services.herramientas import DEFINICIONES, Herramientas
+from app.services.herramientas import (
+    DEFINICIONES,
+    NOTAS_POR_PIEZA,
+    PUNTOS_POR_PIEZA,
+    Herramientas,
+)
 from app.services.recomendador import describir_vertice
 from app.services.serializers import tablero_desde_api, vertice_desde_id
 
@@ -60,6 +67,11 @@ Cómo trabajas:
   - Probabilidad de un número: probabilidad_de_numero.
   - Qué escasea o qué puertos hay en el tablero: resumen_del_tablero.
   - Cualquier otra regla: consultar_reglas.
+  - Una pregunta que empieza con 📘 es para APRENDER un concepto del juego (pips,
+    puertos, ciudad, madera y ladrillo). Título `### 📘 <concepto>`; explícalo en
+    general en 2 o 3 viñetas con costo_de_construccion o probabilidad_de_numero, y
+    cierra con UNA frase que lo relacione con la opción seleccionada. Los pips y las
+    probabilidades son del dado, no "del simulador".
 - En Catan los recursos no se compran: se producen con los dados o se cambian con el
   banco (4:1), un puerto (3:1 o 2:1) u otros jugadores. Lo que se compra son las
   cartas de desarrollo.
@@ -387,11 +399,25 @@ _ESTRATEGIA = ("estrategia", "plan", "como juego", "como jugar", "como gano", "g
                "que hago", "que hacer", "despues", "siguiente", "construyo", "construir",
                "primero", "empiezo", "empezar", "prioridad", "enfoque", "consejo")
 _EXPANSION = ("hacia donde", "crezco", "crecer", "expandir", "expando", "tercer poblado",
-              "siguiente poblado", "mis caminos", "tiendo", "seguir", "sigo")
+              "siguiente poblado", "mis caminos", "tiendo", " seguir ", " sigo ",
+              "caminos necesito", "cuantos caminos")
 _PARTIDA = ("construyo", "construir", "que hago", "que hacer", "produc", "me conviene",
             "siguiente paso", "ahora", "que me falta", "me falta", "ciudad")
 _ALTERNATIVAS = ("otra", "alternativa", "opciones", "otras vias")
 _PIPS = ("pips", "puntitos")
+_CONSEGUIR = ("consigo", "conseguir", "obtengo", "obtener", "me va a faltar", "me falta mas",
+              "no produzco", "no produces", "recurso me falta")
+#: Conceptos del juego que el chat explica para enseñar (las sugerencias 📘).
+_CONCEPTOS = {
+    "puerto": ("funciona un puerto", "que es un puerto", "como funcionan los puertos",
+               "para que sirve un puerto"),
+    "ciudad": ("para que sirve una ciudad", "que es una ciudad", "por que subir a ciudad",
+               "vale la pena una ciudad"),
+    "madera_ladrillo": ("madera y ladrillo",),
+    "pips": ("que son los pips", "que es un pip", "que significan los pips", "puntitos",
+             "la de mas pips"),
+}
+_RECURSOS_EN_PREGUNTA = {r: (r,) for r in RECURSOS}
 _REGLAS = ("regla", "ladron", "siete", " 7 ", "descart", "se puede", "puedo",
            "permitido", "comerci", "intercambi", "caballero", "ejercito", "mas largo",
            "victoria", "banco", "dados")
@@ -454,6 +480,11 @@ def _con_plantillas(peticion: PeticionChat, herramientas: Herramientas | None = 
     # Costos y probabilidades no dependen de la recomendación.
     if _dice(pregunta, _COSTO):
         return _texto_costo(herramientas, _nombrada(pregunta, _PIEZAS_EN_PREGUNTA))
+    concepto = _nombrada(pregunta, _CONCEPTOS)
+    if concepto is not None:
+        return _texto_concepto(concepto)
+    if _dice(pregunta, _CONSEGUIR) and (opciones or completa or peticion.propios):
+        return _texto_conseguir(herramientas, _nombrada(pregunta, _RECURSOS_EN_PREGUNTA))
     if _dice(pregunta, _PROBABILIDAD):
         numero = next((int(n) for n in re.findall(r"\b(\d{1,2})\b", pregunta)
                        if 2 <= int(n) <= 12), None)
@@ -577,6 +608,103 @@ def _mini_tarjeta(indice: int, opcion, detalle: bool = True) -> list[str]:
     if detalle:
         lineas += [f"Haz: {exp.haz}", f"Evita: {exp.evita}"]
     return lineas
+
+
+def _texto_concepto(concepto: str) -> str:
+    """Un concepto del juego explicado con las tablas del dominio, para aprender."""
+    if concepto == "pips":
+        return "\n".join([
+            "### 📘 Los pips",
+            "Son los puntitos bajo el número de cada ficha: en cuántas de las 36 "
+            "combinaciones de dos dados sale ese número.",
+            f"- El 6 y el 8 tienen {PIPS[6]}: salen en {100 * PIPS[6] / 36:.1f} % de las "
+            "tiradas.",
+            f"- El 2 y el 12 tienen {PIPS[2]}: {100 * PIPS[2] / 36:.1f} %.",
+            "- Los pips de un poblado son la suma de los de sus hexágonos.",
+            "Los pips dicen cuántas cartas recibes, no de qué tipo. Por eso la app no "
+            "ordena solo por pips: importa que la combinación te deje construir.",
+        ])
+    if concepto == "puerto":
+        banco, generico = _tasa_de_cambio(None, set()), _tasa_de_cambio(None, {"3:1"})
+        especifico = _tasa_de_cambio("madera", {"madera"})
+        return "\n".join([
+            "### 📘 Los puertos",
+            "Cambiar cartas con el banco cuesta caro; un poblado o ciudad en la costa, junto "
+            "a un puerto, abarata el cambio:",
+            f"- Sin puerto, el banco: {banco} cartas iguales por 1 de las que quieras.",
+            f"- Puerto 3:1: {generico} cartas iguales por 1.",
+            f"- Puerto 2:1 de un recurso: {especifico} cartas de ese recurso por 1.",
+            "Un puerto 2:1 rinde de verdad si es del recurso que más produces: es la idea "
+            "de la estrategia ⚓ Puerto y conversión.",
+        ])
+    if concepto == "ciudad":
+        costo = ", ".join(f"{n} {r}" for r, n in COSTOS["ciudad"].items())
+        return "\n".join([
+            "### 📘 La ciudad",
+            NOTAS_POR_PIEZA["ciudad"],
+            f"- Cuesta {costo}.",
+            f"- Da {PUNTOS_POR_PIEZA['ciudad']} puntos de victoria en total.",
+            "- Cobra 2 cartas en cada hexágono que toca cuando sale su número.",
+            "Por eso las opciones con trigo y mineral (🏰 Ciudades y desarrollo) "
+            "crecen hacia arriba en vez de a lo ancho.",
+        ])
+    camino = ", ".join(f"{n} {r}" for r, n in COSTOS["camino"].items())
+    poblado = ", ".join(f"{n} {r}" for r, n in COSTOS["poblado"].items())
+    return "\n".join([
+        "### 📘 Madera y ladrillo",
+        f"- Un camino cuesta {camino}.",
+        f"- Un poblado cuesta {poblado}.",
+        "Sin madera y ladrillo no puedes tender caminos ni llegar a vértices nuevos. "
+        "Producir los dos a la vez es lo que define la estrategia 🛤️ Expansión, y el "
+        "modelo lo premia: una pareja que los tiene suele sacar más puntos.",
+    ])
+
+
+def _texto_conseguir(herramientas: Herramientas, recurso: str | None) -> str:
+    """Cómo conseguir un recurso (el que más te falta, si no se nombra)."""
+    if recurso is None:
+        recurso = _recurso_mas_escaso(herramientas)
+        if recurso is None:
+            return "Primero hace falta una recomendación en pantalla o tus poblados marcados."
+    datos = herramientas._como_conseguir(recurso)
+    if "error" in datos:
+        return datos["error"]
+    propio = datos["cartas_por_ronda_produciendo"]
+    lineas = [f"### Cómo conseguir {recurso}"]
+    if propio > 0:
+        lineas.append(
+            f"Lo produces: {propio:.2f} cartas por ronda, una cada "
+            f"{datos['rondas_por_carta']:.1f} rondas."
+        )
+    else:
+        lineas.append("No lo produces, así que hay que cambiarlo.")
+    if datos["mejores_cambios"]:
+        lineas += ["", "**Mejores cambios con lo que sí produces**"]
+        lineas += [
+            f"- Entregar {c['entregar']} a {c['tasa']}: unas "
+            f"{c['cartas_conseguidas_por_ronda']:.2f} cartas de {recurso} por ronda"
+            for c in datos["mejores_cambios"]
+        ]
+    lineas += [
+        "",
+        "Haz: comercia también con los otros jugadores en tu turno; suele salir mejor "
+        "que el banco.",
+        f"Evita: depender del banco si puedes crecer hacia un vértice con {recurso}.",
+    ]
+    return "\n".join(lineas)
+
+
+def _recurso_mas_escaso(herramientas: Herramientas) -> str | None:
+    """El recurso que menos produce la opción seleccionada o, en partida, tus piezas."""
+    opcion = herramientas._opcion_seleccionada()
+    if opcion is not None:
+        pips = {r: opcion.variables.get(f"pips_{r}", 0) for r in RECURSOS}
+    else:
+        datos = herramientas._resumen_de_partida()
+        if datos is None:
+            return None
+        pips = datos["pips_por_recurso"]
+    return min(RECURSOS, key=lambda r: pips[r])
 
 
 def en_partida(peticion: PeticionChat) -> bool:

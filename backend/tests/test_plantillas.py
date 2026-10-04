@@ -82,3 +82,43 @@ def test_comparar_muestra_una_mini_tarjeta_por_opcion(pantalla):
 def test_por_defecto_ofrece_las_preguntas_como_lista(pantalla):
     texto = _responder(pantalla, "blablá")
     assert all(f"- {s}" in texto for s in chat.SUGERENCIAS_BASICAS)
+
+
+# --- Preguntas que sugiere el chat para aprender ----------------------------------
+
+
+@pytest.mark.parametrize(
+    ("pregunta", "titulo"),
+    [
+        ("📘 ¿Qué son los pips?", "### 📘 Los pips"),
+        ("📘 ¿Cómo funciona un puerto 2:1?", "### 📘 Los puertos"),
+        ("📘 ¿Para qué sirve una ciudad?", "### 📘 La ciudad"),
+        ("📘 ¿Por qué madera y ladrillo van juntos?", "### 📘 Madera y ladrillo"),
+        ("¿Por qué no elegir la de más pips?", "### 📘 Los pips"),
+    ],
+)
+def test_los_conceptos_se_explican(pantalla, pregunta, titulo):
+    assert _responder(pantalla, pregunta).startswith(titulo)
+
+
+def test_como_consigo_un_recurso_nombrado(pantalla):
+    texto = _responder(pantalla, "¿Cómo consigo trigo?")
+    assert texto.startswith("### Cómo conseguir trigo")
+
+
+def test_sin_nombrar_recurso_explica_el_mas_escaso(pantalla):
+    v = pantalla["opciones"][0]["variables"]
+    recursos = ("madera", "ladrillo", "trigo", "oveja", "mineral")
+    escaso = min(recursos, key=lambda r: v[f"pips_{r}"])
+    assert _responder(pantalla, "¿Qué recurso me va a faltar?").startswith(
+        f"### Cómo conseguir {escaso}"
+    )
+
+
+def test_consigo_no_es_seguir(pantalla):
+    # "consigo" contiene "sigo": antes se confundía con "¿cómo sigo?".
+    texto = chat._con_plantillas(PeticionChat(
+        pregunta="¿Cómo consigo lo que no produzco?", tablero=pantalla["tablero"],
+        propios=pantalla["opciones"][0]["vertices"],
+    ))
+    assert texto.startswith("### Cómo conseguir")

@@ -14,3 +14,4 @@ data/processed/*.csv
 !data/processed/.gitkeep
 openapi.json
 logs/
+docs/

@@ -248,7 +248,11 @@
         @for (s of sugerencias(); track s) {
           <button
             type="button"
-            class="shrink-0 rounded-full border border-accion/40 bg-white px-3 py-1.5 text-sm text-accion hover:bg-accion/5 disabled:opacity-50"
+            class="shrink-0 rounded-full border px-3 py-1.5 text-sm disabled:opacity-50"
+            [class]="s.startsWith('📘')
+              ? 'border-dashed border-sky-700/50 bg-sky-50 text-sky-900 hover:bg-sky-100'
+              : 'border-accion/40 bg-white text-accion hover:bg-accion/5'"
+            [attr.title]="s.startsWith('📘') ? 'Para aprender: un concepto del juego' : null"
             [disabled]="pensando()"
             (click)="enviar(s)"
           >

@@ -66,6 +66,17 @@ Tras cambiar un esquema del backend: exportar el OpenAPI y luego `npm run api:ti
 `esquema.d.ts` sí se versiona (Vercel compila sin backend); `openapi.json` no.
 Un `npm start` que ya corría **no** relee `angular.json`: si cambia, reinícialo.
 
+**Notebooks en Cursor (o VS Code).** Usan el mismo entorno que el backend, para que el
+modelo se entrene con scikit-learn 1.8.0:
+
+```powershell
+cd backend; uv sync --extra dev --extra llm --extra notebooks   # una vez
+```
+
+En el notebook, «Select Kernel» → `backend\.venv`. Los notebooks encuentran
+`data/processed/parejas.csv` solos (desde `notebooks/`, desde la raíz o en Colab).
+`02_modelo.ipynb` **sobrescribe `modelos/colono.joblib`**.
+
 ---
 
 ## 3. Stack verificado
@@ -228,6 +239,17 @@ estado dice "colocación inicial completa" y las herramientas de opciones rediri
 con todas las piezas del usuario (`domain/partida.py`). Se comprobó que las variables
 de 100 parejas quedan idénticas: el modelo no cambia. Si se toca esa función, cambian
 a la vez el dataset y los consejos de partida.
+
+### 5.22 Los notebooks no corrían en Cursor
+`backend/.venv` no tenía `ipykernel`, `plotly` ni `nbformat` (se hizo solo para la
+API), el Python 3.14 del sistema no tenía `plotly` y el 3.12 sí lo tenía todo pero con
+scikit-learn 1.5.2: entrenar ahí habría dado un `.joblib` incompatible (§5.10). Ahora
+hay un extra `notebooks` en `pyproject.toml` (Render no lo instala). Además: la ruta
+`../data/...` fallaba si Cursor ejecuta desde la raíz (se busca `RAIZ` subiendo
+carpetas), y Plotly 6+ ya no alinea por índice una columna completa con una muestra
+(`color=datos[...]` sobre `datos.sample(...)`): el color sale de la misma muestra.
+Verificado: los dos notebooks corren de punta a punta y el modelo que produce
+`02_modelo` es idéntico al guardado (R² 0.642, mismos coeficientes).
 ---
 
 ## 6. Arquitectura
@@ -275,6 +297,13 @@ a la vez el dataset y los consejos de partida.
   se inserta HTML: lo que escriba el LLM no puede meter etiquetas en la página. El LLM
   lo pide `INSTRUCCIONES` y las plantillas lo producen igual; `sin_estado()` quita el
   eco de la línea "[Estado: …]".
+- **Las preguntas sugeridas siguen la conversación.** `asistente/sugerencias.ts`
+  (función pura `sugerir()`): reconoce el tema de la última respuesta por sus títulos
+  (`temaDe()`), propone el siguiente paso, nunca repite una pregunta ya hecha y añade
+  una «para aprender» (📘) acorde a la familia. **Toda sugerencia debe tener respuesta
+  también en el modo básico**: si se agrega una al catálogo, se agrega su intención en
+  las plantillas de `chat.py` (y su prueba en `test_plantillas.py`). Las preguntas de
+  reglas no se sugieren hasta que las reglas estén verificadas.
 - **El chat habla de la opción que el usuario eligió.** `PeticionChat.elegida` (índice
   desde 0) dice cuál; el frontend manda también el tablero y las opciones ya
   calculadas. Toda cifra de una respuesta sale de esas opciones.
@@ -319,7 +348,7 @@ a la vez el dataset y los consejos de partida.
 | Visión: puertos | plantilla del marco, editable en la revisión |
 | Revisión del tablero | lista: empieza en el primer dudoso; opciones más probables de un toque; al corregir, `reacomodar()` mueve sola la ficha con la que se confundió y lo avisa; «Todo se ve bien» acepta lo dudoso; contador contra el reparto; girar/mover/cambiar puertos; confirmar con `/tableros/validar` |
 | Foto | subir o tomar con la cámara del celular (`capture`); se reduce a 1600 px en el navegador y no se guarda en el backend |
-| Chat: plantillas y LLM | LLM con herramientas, verificador, límites y registro; probado en vivo con `gpt-5-mini` (≈ US$0.001 por pregunta, 7 s). Clave rechazada detectada y avisada (§5.15). Plantillas normalizadas con intención de estrategia. Falta correr `scripts/evaluar_chat.py` con las 5 preguntas de estrategia |
+| Chat: plantillas y LLM | LLM con herramientas, verificador, límites y registro; probado en vivo con `gpt-5-mini` (≈ US$0.001 por pregunta, 7 s). Clave rechazada detectada y avisada (§5.15). Plantillas normalizadas con intención de estrategia, partida, cómo conseguir un recurso y 4 conceptos para aprender (pips, puertos, ciudad, madera y ladrillo). Sugerencias didácticas que cambian con la conversación. Falta correr `scripts/evaluar_chat.py` con las 5 preguntas de estrategia |
 | Reglas verificadas | borrador de 17 entradas en `domain/reglas.md`, **ninguna verificada**: hasta entonces el chat no cita reglas. Ana las revisa en la página «Reglas de Catan por verificar» y `scripts/aplicar_verificacion.py` pasa sus resultados a `reglas.md`. `test_la_regla_de_costos_coincide_con_la_tabla_del_codigo` mantiene la de costos igual a `COSTOS` |
 | Marcar la colocación y la partida | modo + toque (Mi poblado, Ciudad, Rival, Borrar); regla de distancia en el cliente; recálculo automático; segunda colocación con `mio`. En partida: hasta 5 poblados y 4 ciudades; «🧭 ¿Hacia dónde crezco?» (`/expansion` y `hacia_donde_expandir`) marca los destinos A, B y C con su ruta. Los caminos no se marcan |
 | Guía de la partida | `domain/partida.py`: producción de todas tus piezas (ciudades ×2), números que te pagan, puertos y rondas hasta cada construcción con la misma fórmula que el modelo (`turnos_hasta`). Herramienta `mi_produccion`; `plan_de_construccion`, `como_conseguir` y `que_me_falta` usan tus piezas reales en partida. Modo básico con plantilla «Tu partida» |

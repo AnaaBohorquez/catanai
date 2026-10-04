@@ -188,6 +188,8 @@ Así funciona una pregunta:
 
 Cada respuesta lleva etiquetas de dónde sale: **📊 Según el modelo**, **📖 Regla del juego** o **💡 Consejo general** (lo que no sale de ninguna herramienta).
 
+**Preguntas sugeridas.** Bajo el campo de texto, el chat propone preguntas que siguen el hilo: después de ver una estrategia, «¿Qué recurso me va a faltar?» o «¿Y si juego Ciudades?»; después de tu producción en partida, «¿Cómo consigo lo que no produzco?». Nunca repite una pregunta que ya hiciste. Además siempre ofrece una pregunta **📘 para aprender** un concepto (los pips, los puertos, la ciudad, la madera y el ladrillo), escogida según la opción: la del puerto si tu opción tiene puerto, la de madera y ladrillo si es Expansión. El tema de la última respuesta se reconoce por sus títulos (`### Tu partida`, `### Destino A`, `**Plan**`…), y cada sugerencia tiene respuesta también en el modo básico.
+
 **Formato de las respuestas.** Las respuestas largas se ven como las tarjetas de recomendación: un título con el icono de la familia (🛤️ Expansión, 🏰 Ciudades, ⚓ Puerto), una frase de resumen, listas («Plan», «Por qué») y las líneas ✅ Haz y ⚠️ Evita. El modelo escribe un formato de texto sencillo y la pantalla lo convierte en esos bloques; las preguntas cortas (un costo, una probabilidad) se contestan en una o dos frases.
 
 **Modo básico.** Sin clave, con la clave rechazada por OpenAI o con el presupuesto del día agotado, responde con **plantillas**: reconocen la intención por palabras clave (estrategia, por qué, comparar, costos, probabilidad, rivales, reglas) sobre la pregunta sin acentos ni signos, y usan las mismas herramientas. Entienden menos preguntas, por eso la respuesta lleva la etiqueta **⚙️ Modo básico** y la cabecera del chat lo avisa.
